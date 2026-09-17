@@ -1,0 +1,33 @@
+# Petronilo voice assistant as a systemd service (auto-start on boot, auto-restart).
+#
+# Install (needs sudo):
+#   sudo cp ~/picrawler/examples/petronilo.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now petronilo
+# Logs:      journalctl -u petronilo -f
+# Stop/Start: sudo systemctl stop petronilo   /  sudo systemctl start petronilo
+# Remove:    sudo systemctl disable --now petronilo
+#
+# Notes: runs as root like `sudo python3 ...` does, so models must exist under
+# /root (~/.piper_models, ~/.vosk_models). Copy them once:
+#   sudo cp -r ~/.piper_models ~/.vosk_models /root/
+
+[Unit]
+Description=Petronilo - PiCrawler voice assistant
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/ricardo/picrawler/examples
+Environment=HOME=/root
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /home/ricardo/picrawler/examples/18_voice_active_crawler_gpt.py
+Restart=on-failure
+RestartSec=5
+# give the servos/camera a moment to settle after a crash before restarting
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
