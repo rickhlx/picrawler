@@ -6,7 +6,7 @@ WELCOME = "Hello, I am a helpful assistant. How can I help you?"
 
 llm = OpenAI(
     api_key=OPENAI_API_KEY,
-    model="gpt-4o",
+    model="gpt-5.6-luna",
 )
 
 # Set how many messages to keep
