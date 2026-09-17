@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-from robot_hat.tts import Piper, Espeak
+from robot_hat.tts import Piper
+from spanish_tts import EspeakES, PIPER_MODEL
 
 # ── Text-to-Speech demo for PiCrawler ───────────────────────────────────
 # Press Ctrl+C to exit.
@@ -22,7 +23,7 @@ from robot_hat.tts import Piper, Espeak
 
 # Choose TTS engine
 USE_PIPER = True          # True=Piper, False=Espeak
-TTS_MODEL = "en_US-ryan-low"   # Piper model (English); use "zh_CN-huayan-x_low" for Chinese
+TTS_MODEL = PIPER_MODEL   # Spanish Piper model (see spanish_tts.py); "en_US-ryan-low" for English
 
 def main():
     print("=== PiCrawler Text-to-Speech Demo ===")
@@ -31,8 +32,8 @@ def main():
         print(f"Engine: Piper ({TTS_MODEL})")
         tts = Piper(model=TTS_MODEL)
     else:
-        print("Engine: Espeak")
-        tts = Espeak()
+        print("Engine: Espeak (es-la)")
+        tts = EspeakES()
 
     print("Type text to speak, or 'quit' to exit")
     print()

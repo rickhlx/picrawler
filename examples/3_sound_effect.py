@@ -1,10 +1,10 @@
 from time import sleep
 import readchar
 from robot_hat import Music
-from robot_hat.tts import Espeak
+from spanish_tts import EspeakES
 
 music = Music()
-tts = Espeak()
+tts = EspeakES()
 
 manual = '''
 Press a key to trigger actions (no Enter needed):
@@ -51,7 +51,7 @@ def main():
                 sleep(0.5)
 
             elif key == "t":
-                tts.say("Hello")
+                tts.say("Hola")
 
     except KeyboardInterrupt:
         print("\nquit")

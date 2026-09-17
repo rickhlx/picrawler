@@ -2,7 +2,7 @@
 from picrawler import Picrawler
 from time import sleep, time
 from robot_hat import Music
-from robot_hat.tts import Espeak
+from spanish_tts import EspeakES
 from vilib import Vilib
 import readchar
 import random
@@ -10,7 +10,8 @@ import threading
 
 crawler = Picrawler()
 music = Music()   # kept for compatibility (not used here)
-tts = Espeak()
+tts = EspeakES()
+COLOR_ES = {"red": "rojo", "orange": "naranja", "yellow": "amarillo", "green": "verde", "blue": "azul", "purple": "morado"}
 
 MANUAL = '''
 Press keys on keyboard to control Picrawler!
@@ -90,7 +91,7 @@ def renew_color_detect():
         except Exception:
                 pass
         try:
-                tts.say("Look for " + color)
+                tts.say("Busca el color " + COLOR_ES.get(color, color))
         except Exception:
                 pass
 
@@ -128,7 +129,7 @@ def main():
 
         # Announce and stand up to 40
         try:
-                tts.say("game start")
+                tts.say("Empieza el juego")
         except Exception:
                 pass
         sleep(0.05)
@@ -146,7 +147,7 @@ def main():
 
                         if n != 0 and w > 100:
                                 try:
-                                        tts.say("well done")
+                                        tts.say("Muy bien")
                                 except Exception:
                                         pass
                                 sleep(0.05)
@@ -160,7 +161,7 @@ def main():
 
                         elif k == 'space':
                                 try:
-                                        tts.say("Look for " + color)
+                                        tts.say("Busca el color " + COLOR_ES.get(color, color))
                                 except Exception:
                                         pass
 
