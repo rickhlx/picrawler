@@ -2,7 +2,7 @@
 Cloud voice for Petronilo (OpenAI), with offline fallbacks.
 
 - ``PetroniloTTS``: OpenAI gpt-4o-mini-tts with a persona instruction so the
-  voice sounds like a funny Mexican uncle.  If the request fails (no network,
+  voice sounds like a funny chilango (Mexico City) uncle.  If the request fails (no network,
   API error) it falls back to the offline Spanish Piper voice.
 - ``HybridSTT``: keeps the small offline Vosk model for wake-word detection and
   end-of-utterance detection, but transcribes each utterance with OpenAI
@@ -26,9 +26,12 @@ from spanish_tts import PIPER_MODEL
 TTS_VOICE = "echo"
 TTS_GAIN = 2.5   # playback gain (library default 1.5); clipping-protected, lower if it distorts
 TTS_INSTRUCTIONS = (
-    "Habla en español mexicano, con acento del centro de México. Eres Petronilo, el tío chistoso "
-    "de la familia: relajado, burlón con cariño, con ritmo de cuentachistes, entonación expresiva "
-    "y una risita ocasional. Nunca suenes como locutor ni como asistente corporativo."
+    "Habla con acento chilango de la Ciudad de México, bien marcado: la entonación cantadita que "
+    "sube y alarga la última vocal al final de las frases (\"no manches, güeeey\", \"¿neta?\"), "
+    "las eses bien pronunciadas y el ritmo de barrio defeño, pero sin hablar atropellado. Nada de acento neutro, norteño "
+    "ni español de España. Eres Petronilo, el tío chistoso de la familia: relajado, burlón con cariño, "
+    "con ritmo de cuentachistes, entonación expresiva y una risita ocasional. Nunca suenes como "
+    "locutor ni como asistente corporativo."
 )
 
 STT_MODEL = "gpt-4o-transcribe"
