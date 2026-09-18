@@ -17,6 +17,7 @@ Quick Links:
     - [Spanish voice](#spanish-voice)
     - [Petronilo voice assistant](#petronilo-voice-assistant)
     - [Twerk demo](#twerk-demo)
+    - [Tricks](#tricks)
   - [About SunFounder](#about-sunfounder)
   - [Contact us](#contact-us)
 
@@ -141,6 +142,7 @@ sudo python3 ~/picrawler/examples/1_move.py
 | 21 | `21_imu_check.py` | Print roll/pitch from an MPU6050 to check its mounting (`--axes` to remap) |
 | 22 | `22_self_level.py` | Stand and hold the body level on a tilting surface (MPU6050) |
 | 23 | `23_trot.py` | Keyboard-driven trot gait, optionally self-leveling (`--level`, `--max-dps`) |
+| 24 | `24_tricks.py` | Crowd-pleaser tricks: bow, nod, shake head, shimmy, hula, bounce, spin, play dead, high five |
 | | `twerk.py` | Reggaeton twerk dance to a synthesized dembow beat |
 | | `servo_zeroing.py` | Servo zeroing utility |
 
@@ -168,7 +170,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 - **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted). After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; silence or a goodbye sends him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
-- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota"), both refused on a low battery.
+- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota") and the [tricks](#tricks) below. He nods and shakes his head along with what he says, bows for applause, and plays dead when you say "bang". Twerk, trot, spin and bounce are refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.
 - **Memory:** when a conversation ends, a small model (`gpt-4.1-mini`) reads it and adds, corrects or forgets facts about the family, plus a one-line summary of the chat, in `petronilo_memory.json` (Pi-local, not tracked). Both are in his prompt from the next turn on; nobody has to say "acuérdate".
 
@@ -195,6 +197,17 @@ sudo python3 ~/picrawler/examples/twerk.py --bpm 100 --volume 40 --speed 70
 ```
 
 Options: `--bpm` (default 95), `--volume` 0–100 (default 100), `--speed` servo speed 0–100 (default 90), `--regen` to re-synthesize the beat. Lower `--speed` and `--volume` if the Pi browns out — running all twelve servos fast with a loud amplifier draws a lot of current.
+
+### Tricks
+
+`picrawler/tricks.py` has party tricks built as body-frame keyframes: `bow`, `nod`, `shake head`, `shimmy`, `hula`, `bounce`, `spin`, `play dead` and `high five`. Each one stands up, performs, and ends in the stand pose.
+
+```bash
+sudo python3 ~/picrawler/examples/24_tricks.py                 # all of them
+sudo python3 ~/picrawler/examples/24_tricks.py "play dead" bow # just these
+```
+
+From Python it is `Picrawler().trick("high five")`; from the OpenClaw skill, `pc.py trick "high five"`.
 
 ----------------------------------------------
 

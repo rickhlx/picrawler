@@ -36,12 +36,13 @@ picrawler/
   gait.py              # Trot generator (diagonal pairs) + reposition helper
   imu.py               # MPU6050 driver + complementary-filter Attitude
   balance.py           # Leveler: integral roll/pitch body leveling
+  tricks.py            # Crowd-pleaser tricks (bow, shimmy, play dead, ...) as body-frame keyframes
   llm.py               # Re-exports LLM classes from robot_hat.llm
   voice_assistant.py   # Re-exports VoiceAssistant from robot_hat.voice_assistant
   stt.py               # Re-exports STT from robot_hat.stt
   tts.py               # Re-exports TTS from robot_hat.tts
   version.py           # Version string (2.1.4)
-examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot)
+examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot; 24 tricks)
   voice_active_crawler.py     # VoiceActiveCrawler class (base, not numbered)
   petronilo_voice.py          # PetroniloTTS (OpenAI TTS + Piper fallback), HybridSTT, SpeechPipeline
   spanish_tts.py              # Mexican Spanish Piper model name + EspeakES
@@ -72,6 +73,8 @@ picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc
 
 **IMU, leveling and trot** (`body.py`, `imu.py`, `balance.py`, `gait.py`) work in a body frame (REP-103: x forward, y left, z up; roll + lifts the left side, pitch + drops the nose) and produce `do_step` frames via `body.to_step(points, roll, pitch)`. `imu.MPU6050` talks through `robot_hat.I2C` at 0x68; `axes=` remaps a rotated mounting. `balance.Leveler` is an integral controller with a disc clamp: standing stays inside the shoulder servo's -10 deg limit up to ~11 deg of correction, trotting with the default 15 mm lift up to ~6 deg. `gait.Trot` is stateful (`half_cycle(stride, strafe, turn)`, `settle()`), so commands can change every half cycle. The servos have no feedback, so this is quasi-static leveling, not dynamic balance.
 
+**Tricks** (`tricks.py`): each trick returns a list of `Move(feet, speed, hold)` in the body frame, built with `pose(x, y, z, roll, pitch, yaw)` (body shifted/rotated with the feet planted) and ending in `gait.NEUTRAL`. `Picrawler.trick(name)` runs one inside `Picrawler.neutral_stance()`, which steps from the stand pose into NEUTRAL and back (trot uses it too). Add a trick by writing the function and registering it in `TRICKS`.
+
 ## Key physical constants
 
 Defined in `MoveList`: `LENGTH_SIDE = 77` (body width), `X_DEFAULT = 45`, `Y_DEFAULT = 45`, `Z_DEFAULT = -50` (standing height), `Z_UP = -30` (sitting/lifted height). All in mm.
@@ -88,7 +91,7 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Supported actions
 
-`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; both are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
+`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down`, and the tricks `bow`, `nod`, `shake head`, `shimmy`, `hula`, `bounce`, `spin`, `play dead`, `high five` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; they, `spin` and `bounce` are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 
@@ -132,6 +135,9 @@ sudo python3 examples/20_voice_active_crawler_ollama.py   # Local Ollama, Spanis
 sudo python3 examples/21_imu_check.py --axes x,y,z       # Verify IMU signs
 sudo python3 examples/22_self_level.py                    # Self-leveling stand
 sudo python3 examples/23_trot.py --level                  # Keyboard trot
+
+# Tricks (24)
+sudo python3 examples/24_tricks.py "play dead" bow        # Named tricks; no args runs all of them
 
 # Not numbered
 sudo python3 examples/twerk.py --bpm 95 --volume 40 --speed 70   # Reggaeton twerk
