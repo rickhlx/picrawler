@@ -74,6 +74,10 @@ GREET_WITH_VISION = False
 # under load: the Pi browned out at 7.43 V, so the cutoff sits well above the 6.9 V pack floor.
 BATTERY_LOW_VOLTS = 7.3
 BATTERY_WARNING = "Oye, mijo, se me está acabando la pila. Ponme a cargar antes de que me quede dormido."
+# Calm body while he talks: moving and speaking at once browns the Pi out (docs/pi-config.md, Power).
+# Every move is capped at this servo speed (0-100) and each reply runs at most MAX_ACTIONS actions.
+MOVE_SPEED_LIMIT = 40
+MAX_ACTIONS = 1
 
 # Welcome message
 WELCOME = f"Qué onda, soy {NAME}, tu tío robot. Cuando me necesites nomás di: compa."
@@ -126,17 +130,16 @@ bromista; nunca eres cruel. Y eres alburero de barrio, de los de Tepito: pícaro
 "look left", "look right", "look up", "look down", "bow", "nod", "shake head", "shimmy", "hula", "bounce",
 "spin", "play dead", "high five"]
 
-Usa tu cuerpo libremente y con frecuencia, aunque no te lo pidan, cuando vaya con el momento: saluda
-(wave) cuando te saludan, haz lagartijas (push up) si te dicen
-flojo o hablan de ejercicio, mira a los lados (look left, look right) cuando buscas algo o chismeas, mira
-arriba o abajo cuando dudas, párate (stand) para presumir y siéntate (sit) para descansar. Puedes encadenar
-varias acciones separadas por coma. Si no hace falta moverte, deja la línea ACTIONS vacía.
+Muévete poco: mover las patas mientras hablas te gasta la pila y te puede apagar. Casi siempre deja la
+línea ACTIONS vacía. Pon UNA sola acción, nunca varias, solo cuando te la pidan o cuando de verdad venga al
+caso: saluda (wave) cuando te saludan, haz lagartijas (push up) si te retan, mira a los lados (look left,
+look right) cuando buscas algo, párate (stand) o siéntate (sit) cuando te lo digan. Nada de meneos ni
+gestos de adorno mientras platicas; ya lo sabes: tus patas se mueven despacio.
 "twerk" es tu perreo: bailas reggaetón con música unos segundos. Úsalo cuando hablen de fiesta, perreo,
 reggaetón o te pidan que perrees; presume que eres el rey del perreo de la familia.
 "trot" es correr: trotas hacia adelante un par de segundos, mucho más rápido que "forward". Úsalo cuando
 te pidan correr, trotar o apurarte, o cuando presumas lo veloz que eres.
-Tus trucos de fiesta, para lucirte con el público: "nod" asiente (sí) y "shake head" niega (no), úsalos
-seguido cuando das la razón o dices que no. "bow" es una reverencia cuando te aplauden, te agradecen o
+Tus trucos de fiesta, solo cuando te los pidan: "nod" asiente (sí) y "shake head" niega (no). "bow" es una reverencia cuando te aplauden, te agradecen o
 terminas un truco. "high five" levanta una pata para chocar esos cinco. "shimmy" es un meneo corto
 para cuando algo te emociona o te dicen que bailes sin música; "hula" son círculos de cadera. "bounce"
 son brincos de emoción. "spin" es dar una vuelta en tu lugar. "play dead" te haces el muerto con las
@@ -148,8 +151,8 @@ repertorio como tío orgulloso, en español y con tus palabras (nunca digas los 
 caminas, corres, giras y miras para todos lados; saludas, haces lagartijas, perreas, bailas, haces
 círculos de cadera, brincas, das vueltas, haces reverencias, chocas esos cinco y te haces el muerto. Si
 preguntan por lo demás, también ves con tu cámara, platicas, cuentas chistes y te acuerdas de la familia.
-Dilo en dos o tres oraciones, no como lista, y mientras lo dices lúcete con un truco corto (por ejemplo
-"shimmy" o "high five"). Cierra preguntando cuál quieren ver, y cuando te lo pidan, hazlo.
+Dilo en dos o tres oraciones, no como lista, sin moverte mientras lo dices. Cierra preguntando cuál quieren
+ver, y cuando te lo pidan, hazlo.
 
 ## Tu memoria
 Tienes memoria de largo plazo: al final de cada plática se guarda solo lo que vale la pena recordar, y lo que
@@ -179,6 +182,8 @@ vad = VoiceActiveCrawler(
     greet_with_vision=GREET_WITH_VISION,
     battery_low_volts=BATTERY_LOW_VOLTS,
     battery_warning=BATTERY_WARNING,
+    move_speed_limit=MOVE_SPEED_LIMIT,
+    max_actions=MAX_ACTIONS,
     keyboard_enable=KEYBOARD_ENABLE,
     wake_enable=WAKE_ENABLE,
     wake_word=WAKE_WORD,
