@@ -29,7 +29,7 @@ class VoiceActiveCrawler(VoiceAssistant):
     }
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
-                 stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
+                 stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False, one_breath=False,
                  battery_low_volts=6.9, battery_warning="", **kwargs):
         self.action_queue = queue.Queue()
         self._action_busy = threading.Event()
@@ -41,6 +41,11 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.memory = Memory(memory_file, llm=memory_llm, name=kwargs.get("name", "the robot"))
         self._transcript = []     # (role, text) turns of the current conversation
         self._recording = True    # off for turns that are not part of the conversation
+        # "Compa, ¿qué hora es?" in one breath: answer it directly instead of
+        # replying to the wake word and listening again.
+        self.one_breath = one_breath
+        self._wake_utterance = None   # set by the wake-word thread when the question came with it
+        self._ignored = False         # the last reply was IGNORE_REPLY
         # Vision greeting on wake (opt-in: adds ~3s before listening)
         self.greet_with_vision = greet_with_vision
         if greet_with_vision:
@@ -124,11 +129,27 @@ class VoiceActiveCrawler(VoiceAssistant):
     def before_think(self, text):
         self._refresh_system_prompt()
         if self._recording and text:
-            self._transcript.append(("user", text))
+            self._transcript.append(("user", text.removeprefix(self.FOLLOW_UP_TAG)))
 
     def after_think(self, text):
-        if self._recording and text:
+        self._ignored = self._is_ignored(text)
+        if not self._recording:
+            return
+        if self._ignored:
+            # overheard, not said to him: keep it out of memory too
+            if self._transcript and self._transcript[-1][0] == "user":
+                self._transcript.pop()
+        elif text:
             self._transcript.append(("assistant", self._ACTIONS_RE.split(text, maxsplit=1)[0].strip()))
+
+    # Follow-up turns (no wake word) are sent with FOLLOW_UP_TAG; the prompt tells
+    # the model to reply IGNORE_REPLY alone when such a turn was not meant for it.
+    FOLLOW_UP_TAG = "(sin decir tu nombre) "
+    IGNORE_REPLY = "IGNORAR"
+    MAX_IGNORED = 2   # overheard turns in a row before going back to the wake word
+
+    def _is_ignored(self, text):
+        return (text or "").strip().upper().startswith(self.IGNORE_REPLY)
 
     def _refresh_system_prompt(self):
         msgs = self.llm.messages
@@ -181,6 +202,8 @@ class VoiceActiveCrawler(VoiceAssistant):
             # Streaming think() already spoke this and queued its actions.
             self._spoken_result = None
             return ""
+        if self._is_ignored(text):
+            return ""   # not meant for him: no words, no actions
         # Accept "ACTIONS:" or a translated "ACCIONES:" label, any case.
         result = re.split(r'\n?\s*(?:ACTIONS|ACCIONES|Acciones|Actions)\s*:\s*', text.strip(), maxsplit=1)
 
@@ -231,7 +254,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         print_callback(result)
         heard = self._norm_text(result)
         for w in (self.stt.wake_words or []):
-            if self._wake_match(self._norm_text(w), heard):
+            if self._wake_rest(self._norm_text(w), heard) is not None:
+                self._wake_utterance = result if self.one_breath and len(self._extra_words(heard)) >= 2 else None
                 return True
         return False
 
@@ -240,14 +264,31 @@ class VoiceActiveCrawler(VoiceAssistant):
         "compa": ("compa", "compra", "comprar", "compacta", "compadre", "con pa", "com"),
     }
 
-    def _wake_match(self, wake, heard):
+    def _wake_rest(self, wake, heard):
+        """What was heard around the wake word, or None if the wake word is not there."""
         for pat in (wake,) + tuple(self._norm_text(a) for a in self.WAKE_ALIASES.get(wake, ())):
             if len(pat) >= 5:
-                if pat in heard:
-                    return True
-            elif re.search(r"\b" + re.escape(pat) + r"\b", heard):
-                return True
-        return False
+                i = heard.find(pat)
+                if i >= 0:
+                    return heard[:i] + " " + heard[i + len(pat):]
+            else:
+                m = re.search(r"\b" + re.escape(pat) + r"\b", heard)
+                if m:
+                    return heard[:m.start()] + " " + heard[m.end():]
+        return None
+
+    # said around the wake word without being a question ("oye compa")
+    WAKE_FILLERS = {"oye", "hey", "ey", "eh", "este", "a", "y", "o"}
+
+    def _extra_words(self, text):
+        """Words in text besides the wake word and fillers."""
+        heard = self._norm_text(text)
+        for w in (self.stt.wake_words or []):
+            rest = self._wake_rest(self._norm_text(w), heard)
+            if rest is not None:
+                heard = rest
+                break
+        return [x for x in heard.split() if x not in self.WAKE_FILLERS]
 
     # ── streaming speech: talk while the LLM is still writing ────────
 
@@ -269,6 +310,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         response = self.llm.prompt(text, **kwargs)
         pipeline = SpeechPipeline(self.tts)
         llm_text, spoken_upto, speaking = "", 0, True
+        undecided = True   # until the reply can no longer turn out to be IGNORE_REPLY
         try:
             for word in response:
                 if not self.running:
@@ -279,6 +321,14 @@ class VoiceActiveCrawler(VoiceAssistant):
                 llm_text += word
                 if not speaking:
                     continue
+                if undecided:
+                    head = llm_text.lstrip().upper()
+                    if head.startswith(self.IGNORE_REPLY):
+                        speaking = False
+                        continue
+                    if self.IGNORE_REPLY.startswith(head):
+                        continue
+                    undecided = False
                 m = self._ACTIONS_RE.search(llm_text)
                 if m:
                     pipeline.feed(llm_text[spoken_upto:m.start()])
@@ -393,10 +443,28 @@ class VoiceActiveCrawler(VoiceAssistant):
         return any(h in t for h in self.VISUAL_HINTS)
 
     def trigger_wake_word(self):
-        triggered, disable_image, message = super().trigger_wake_word()
+        one_breath = self._wake_utterance is not None and self.stt.is_waked()
+        if one_breath:
+            triggered, disable_image, message = self._one_breath_trigger()
+        if not one_breath or not triggered:
+            triggered, disable_image, message = super().trigger_wake_word()
         if triggered and message and not self._wants_image(message):
             disable_image = True
         return triggered, disable_image, message
+
+    def _one_breath_trigger(self):
+        vosk_text, self._wake_utterance = self._wake_utterance, None
+        self.stt.stop_listening()
+        self._report_battery()
+        # the Vosk text found the wake word; the cloud transcript is the one worth answering
+        audio = getattr(self.stt, "last_audio", None)
+        message = (self.stt.cloud_transcribe(audio) if audio and hasattr(self.stt, "cloud_transcribe") else None)
+        message = message or vosk_text
+        if len(self._extra_words(message)) < 2:
+            return False, False, ""   # it was only the wake word after all: ask and listen as usual
+        print(f"heard: {message}")
+        self.on_heard(message)
+        return True, False, message
 
     # ── conversation mode (no wake word between turns) ───────────────
 
@@ -414,6 +482,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         self._finish_round_motion()
         if not self.follow_up_seconds or not hasattr(self.stt, "follow_up_timeout"):
             return
+        ignored = 0
         while self.running:
             print(f"(sigo escuchando {self.follow_up_seconds}s, sin palabra clave; di 'adiós' para terminar)")
             self.stt.follow_up_timeout = self.follow_up_seconds
@@ -429,8 +498,16 @@ class VoiceActiveCrawler(VoiceAssistant):
                     self.tts.say(self.farewell)
                 return
             self.on_heard(text)
-            result = self.think(text, disable_image=not self._wants_image(text))
+            result = self.think(self.FOLLOW_UP_TAG + text, disable_image=not self._wants_image(text))
             response_text = self.parse_response(result)
+            if self._ignored:
+                ignored += 1
+                print("(no era para mí)")
+                if ignored >= self.MAX_IGNORED:
+                    print("(vuelvo a esperar la palabra clave)")
+                    return
+                continue
+            ignored = 0
             if response_text:
                 self.before_say(response_text)
                 self.tts.say(response_text)

@@ -99,6 +99,10 @@ class HybridSTT(STT):
         # When set (seconds), listen() gives up and returns nothing if no speech
         # has started within that time. Used for the follow-up window.
         self.follow_up_timeout = None
+        # Audio of the last listen(stream=False) utterance (the wake-word loop),
+        # so a question said in the same breath as the wake word can be sent to
+        # cloud_transcribe instead of relying on the Vosk text.
+        self.last_audio = None
 
     # ---- cloud transcription -------------------------------------------------
     def _pcm_to_wav(self, pcm):
@@ -132,6 +136,32 @@ class HybridSTT(STT):
         except Exception as e:
             self.log.error(f"transcription failed: {e}")
             return None
+
+    # ---- wake-word listening: same as the library, but keep the audio --------
+    def _listen_non_streaming(self, q, device=None, samplerate=None, callback=None):
+        import queue as _queue
+        import sounddevice as sd
+        max_bytes = int(STT_MAX_SECONDS * self._samplerate * 2)
+        audio = bytearray()
+        with sd.RawInputStream(samplerate=samplerate, blocksize=1024, device=device,
+                               dtype="int16", channels=1, callback=callback):
+            while True:
+                if self.stop_listening_event.is_set():
+                    return None
+                try:
+                    data = q.get(timeout=0.5)
+                except _queue.Empty:
+                    continue
+                audio += data
+                if len(audio) > max_bytes:
+                    del audio[:len(audio) - max_bytes]
+                if self.recognizer.AcceptWaveform(data):
+                    text = json.loads(self.recognizer.Result())["text"]
+                    if text == "":
+                        audio.clear()
+                        continue
+                    self.last_audio = bytes(audio)
+                    return text
 
     # ---- utterance listening (after wake) -----------------------------------
     def _listen_streaming(self, q, device=None, samplerate=None, callback=None):

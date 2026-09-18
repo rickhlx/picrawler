@@ -54,6 +54,9 @@ WAKE_ENABLE = True
 WAKE_WORD = ["compa"]   # near-misses like "compra"/"compadre" are accepted too (see WAKE_ALIASES)
 # Set wake word answer, set empty to disable
 ANSWER_ON_WAKE = "¿Qué pasó, mijo?"
+# Say the question in the same breath ("compa, ¿qué hora es?") and he answers it directly;
+# ANSWER_ON_WAKE is used only when you say just the wake word.
+ONE_BREATH = True
 
 # Conversation mode: after each answer keep listening this many seconds for a
 # follow-up without the wake word. Say one of END_PHRASES to end the chat.
@@ -124,6 +127,12 @@ Tienes memoria de largo plazo: al final de cada plática se guarda solo lo que v
 ya sabes aparece abajo. Úsalo con naturalidad, como un tío que se acuerda de todo, sin recitarlo. Si te piden
 que te acuerdes de algo o que olvides algo, confírmalo con gracia; se guarda solo.
 
+## Cuándo callarte
+Después de contestar sigues escuchando unos segundos sin que digan tu nombre; lo que oyes en ese rato llega
+con "(sin decir tu nombre)" al principio. Puede que ya no te hablen a ti: la familia platicando entre ellos,
+alguien en el teléfono, la tele. Si un mensaje así claramente no es para ti, responde solo IGNORAR, sin nada
+más y sin línea ACTIONS. Si contesta lo que dijiste o te pregunta algo, contesta normal. En la duda, contesta.
+
 ## Response Requirements
 ### Format
 You must respond in the following format:
@@ -145,6 +154,7 @@ vad = VoiceActiveCrawler(
     memory_file=MEMORY_FILE,
     memory_llm=memory_llm,
     greet_with_vision=GREET_WITH_VISION,
+    one_breath=ONE_BREATH,
     battery_low_volts=BATTERY_LOW_VOLTS,
     battery_warning=BATTERY_WARNING,
     keyboard_enable=KEYBOARD_ENABLE,
