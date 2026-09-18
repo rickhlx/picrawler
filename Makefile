@@ -48,8 +48,9 @@ deployed: ## Show what the Pi is running
 sync-dry: ## Show what sync would change
 	$(RSYNC) --dry-run ./ $(PI_HOST):$(PI_DIR)/
 
+# -t gives sudo a terminal to ask for the password on
 restart: ## Restart the voice assistant service
-	ssh $(PI_HOST) sudo systemctl restart $(SERVICE)
+	ssh -t $(PI_HOST) sudo systemctl restart $(SERVICE)
 
 deploy: sync restart ## Sync, then restart
 
