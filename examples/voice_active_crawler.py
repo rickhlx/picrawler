@@ -40,7 +40,7 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
-                 battery_low_volts=6.9, battery_warning="", **kwargs):
+                 battery_low_volts=7.3, battery_warning="", **kwargs):
         self.action_queue = queue.Queue()
         self._action_busy = threading.Event()
         # Speak sentence-by-sentence while the LLM is still streaming (needs PetroniloTTS)
@@ -385,7 +385,9 @@ class VoiceActiveCrawler(VoiceAssistant):
             print(f"(sin pila para perrear: {v:.2f} V)")
             return
         from twerk import party
-        party(self.crawler, seconds=seconds, speed=70, volume=90)
+        # the amp and all twelve servos share the HAT 5 V rail; loud music on top of
+        # a fast twerk is the heaviest load on it (brownouts: docs/pi-config.md, finding 2)
+        party(self.crawler, seconds=seconds, speed=55, volume=60)
 
     def trot(self, half_cycles=10):
         # every servo moves on every frame: same current draw worry as the twerk
@@ -393,7 +395,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         if v is not None and v < self.battery_low_volts:
             print(f"(sin pila para trotar: {v:.2f} V)")
             return
-        self.crawler.trot(half_cycles=half_cycles, stride=30)
+        self.crawler.trot(half_cycles=half_cycles, stride=30, speed=80)
 
     # every servo moves on every frame: same current draw worry as the twerk
     HEAVY_TRICKS = ("spin", "bounce")

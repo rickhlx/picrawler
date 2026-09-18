@@ -11,13 +11,15 @@ Ordered by how much they affect the robot.
 1. ~~**No servo calibration is saved.**~~ Resolved 2026-09-18: calibrated
    with `0_calibration.py` and backed up to `calibration/picrawler.config`
    (`make cali-pull`); `picrawler-control/install.sh` restores it.
-2. **Under-voltage under load.** The kernel logged `Undervoltage detected!` at
-   11:11:13, recovered 2 s later, and `vcgencmd get_throttled` reports
-   `0x50000` (under-voltage and throttling have occurred since boot, neither
-   active now). EXT5V read 5.21 V at idle and the battery 7.43 V (2S, ~50 %),
-   so this is the Robot HAT's 5 V regulator sagging during servo motion rather
-   than a flat battery. Expect it to get worse as the pack drains; charge
-   before trotting or twerking.
+2. **Brownouts under load power the Pi off.** See [Power](#power) for the
+   mitigation done and the hardware fixes still open. The kernel logged
+   `Undervoltage detected!` at 11:11:13, recovered 2 s later, and
+   `vcgencmd get_throttled` reported `0x50000`. EXT5V read 5.21 V at idle and
+   the battery 7.43 V (2S, ~50 %). Later that day the Pi stopped responding
+   with its LED red and came back only after a power cycle;
+   `/proc/device-tree/chosen/power/power_reset` read `0x2`, the PMIC's
+   brownout shutdown. The battery was not flat: the Robot HAT's 5 V regulator
+   runs out of current.
 3. **`petronilo.service` is not installed.** The checkout is at `e8f4dab`,
    which includes the installer step (`picrawler-control/install.sh` step 7),
    but the installer wasn't re-run: no unit exists under
@@ -44,6 +46,70 @@ Minor: locale is `en_GB.UTF-8` while the timezone is `America/New_York`; one
 package upgrade is pending; `~/picrawler` has untracked generated media and
 `picrawler.egg-info/`, all already excluded from `make sync`.
 
+## Power
+
+The Robot HAT's 2S pack feeds a 5 V regulator that supplies the Pi (through
+the header's 5 V pins), the twelve servos and the speaker amp. The firmware
+reports `max_current` = 3000 mA, meaning a 3 A supply. A Pi 5 can draw close to 2 A of
+that on its own, so when several servos start at once the rail sags and the
+PMIC powers the Pi off (brownout). With `POWER_OFF_ON_HALT=0` it then sits in
+standby, LED red, until the power button is pressed or power is cycled. The
+PiCrawler and HAT were designed around a Pi 4, which draws less.
+
+To confirm a crash was a brownout, check this after the Pi comes back up:
+
+```bash
+od -An -tx1 /proc/device-tree/chosen/power/power_reset   # 00 00 00 02 = brownout
+vcgencmd get_throttled                                    # 0x50000 = under-voltage since boot
+```
+
+### Done in software
+
+- The battery gate (`BATTERY_LOW_VOLTS`, `VoiceActiveCrawler(battery_low_volts=)`)
+  is 7.3 V, up from 6.9 V. The voltage at rest overstates what's left under
+  load, and the brownout happened at 7.43 V.
+- The `twerk` action plays the beat at volume 60 and dances at speed 55
+  (was 90 and 70), since the amp and the servos draw from the same rail.
+- The `trot` action runs at speed 80 (library default 100). In `tricks.py`, `spin`
+  runs at 85 (was 100) and `bounce` at 80 (was 95).
+
+These make brownouts less likely but don't remove the cause.
+
+### On the Pi (needs sudo)
+
+Stop the desktop stack from finding 6 so the Pi idles lower:
+
+```bash
+sudo systemctl set-default multi-user.target
+sudo systemctl disable --now cups.service cups.socket cups.path \
+  rpcbind.service rpcbind.socket nfs-client.target packagekit.service
+sudo reboot
+```
+
+`arm_boost=1` in `config.txt` only affects the Pi 4, so removing it saves
+nothing on this Pi 5. The Pi 5 lever is `arm_freq=1800` under `[pi5]`, which
+cuts its peak draw but slows Vosk and camera frames. Try it only if brownouts
+continue after the steps above.
+
+### Hardware (open)
+
+Ordered by effect:
+
+1. **A separate 5 V supply for the Pi.** A 5 V / 5 A UBEC from the 2S pack
+   into the Pi's USB-C leaves the HAT regulator to the servos and the amp,
+   which removes the cause. The HAT also feeds 5 V to the Pi through header
+   pins 2 and 4, so those two must be disconnected (a stacking header with
+   those pins pulled) or the two regulators back-feed each other. Check this
+   against the Robot HAT schematic before wiring. A UBEC doesn't negotiate
+   USB PD, so the Pi will still report 3 A. That only limits its USB ports,
+   and `PSU_MAX_CURRENT=5000` in the EEPROM config lifts it.
+2. **A bulk capacitor on the servo rail.** 1000–2200 µF, 10 V or more,
+   low-ESR electrolytic, across the HAT's servo 5 V and GND, with polarity
+   observed. It covers the start-up current spikes that pull the rail down.
+   It's cheap, needs no rewiring, and may be enough without item 1.
+3. **A healthy pack.** Worn cells with high internal resistance sag more
+   under the same load. If a charged pack reads well under 8.2 V, replace it.
+
 ## Hardware
 
 | Component | Detail |
@@ -56,7 +122,7 @@ package upgrade is pending; `~/picrawler` has untracked generated media and
 | Camera | OV5647 on CSI (`rpicam-hello --list-cameras`), up to 2592×1944 @ 15.6 fps |
 | Ultrasonic | HC-SR04-style ranger on the HAT digital header: trigger `D2` (BCM 27), echo `D3` (BCM 22), read with `robot_hat.Ultrasonic`. Working: 16.0 cm steady at a fixed target, with an occasional `-2` (echo timeout) or stray long reading, so filter before acting on one sample |
 | IMU | Not detected |
-| Battery | 7.43 V at audit time; `VoiceActiveCrawler` warns below 6.9 V |
+| Battery | 7.43 V at audit time; `VoiceActiveCrawler` warns and refuses heavy moves below 7.3 V |
 | Cooling | No fan cooling device registered; SoC at 58.7 °C at light load |
 
 ## OS and firmware
@@ -183,5 +249,6 @@ ssh ricardo@pi.local '
   sudo python3 -c "from robot_hat import Pin, Ultrasonic; s = Ultrasonic(Pin(\"D2\"), Pin(\"D3\")); print([s.read() for _ in range(5)])"
   systemctl status petronilo; systemctl list-unit-files --state=enabled
   sudo journalctl -k -b | grep -i voltage
+  od -An -tx1 /proc/device-tree/chosen/power/power_reset /proc/device-tree/chosen/power/max_current
 '
 ```
