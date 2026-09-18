@@ -11,12 +11,19 @@ class Picrawler(Robot):
     OFFSET_FILE = os.path.expanduser('~/.config/.picrawler.config')
     PIN_LIST = [9, 10, 11, 3, 4, 5, 0, 1, 2, 6, 7, 8]
 
-    def __init__(self, pin_list=PIN_LIST, init_angles=None):  
+    def __init__(self, pin_list=PIN_LIST, init_angles=None, max_dps=None):
+        '''
+        max_dps: servo speed cap in degrees/s used by robot_hat's servo_move.
+        The default (428) matches the stock servos at 4.8 V (60 deg / 0.14 s);
+        raise it after fitting faster servos, e.g. 750 for 60 deg / 0.08 s.
+        '''
 
         utils.reset_mcu()
         time.sleep(0.2)
 
         super().__init__(pin_list, db=self.OFFSET_FILE, name='picrawler', init_angles=init_angles)
+        if max_dps is not None:
+            self.max_dps = max_dps
 
         self.move_list = self.MoveList()
         self.move_list_add = {
