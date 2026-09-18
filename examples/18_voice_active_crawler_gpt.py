@@ -3,6 +3,7 @@ from picrawler.llm import OpenAI as LLM
 from secret import OPENAI_API_KEY as API_KEY
 
 from voice_active_crawler import VoiceActiveCrawler
+from seeker import VisionLocator, Sonar
 
 # ── TTS engines ──────────────────────────────────────────────────────────
 # Pick one. The VoiceAssistant accepts any TTS instance via the `tts=` parameter.
@@ -75,6 +76,11 @@ GREET_WITH_VISION = False
 BATTERY_LOW_VOLTS = 7.3
 BATTERY_WARNING = "Oye, mijo, se me está acabando la pila. Ponme a cargar antes de que me quede dormido."
 
+# "find <object>": the camera frames go to a small vision model, the ultrasonic
+# sensor on D2/D3 stops him short of whatever is in front.
+LOCATOR = VisionLocator(API_KEY, model="gpt-4.1-mini")
+SONAR = Sonar()
+
 # Welcome message
 WELCOME = f"Qué onda, soy {NAME}, tu tío robot. Cuando me necesites nomás di: compa."
 
@@ -124,7 +130,7 @@ bromista; nunca eres cruel. Y eres alburero de barrio, de los de Tepito: pícaro
 ## Actions You Can Perform:
 ["forward", "backward", "turn left", "turn right", "sit", "stand", "wave", "push up", "twerk", "trot",
 "look left", "look right", "look up", "look down", "bow", "nod", "shake head", "shimmy", "hula", "bounce",
-"spin", "play dead", "high five"]
+"spin", "play dead", "high five", "find <object>"]
 
 Usa tu cuerpo libremente y con frecuencia, aunque no te lo pidan, cuando vaya con el momento: saluda
 (wave) cuando te saludan, haz lagartijas (push up) si te dicen
@@ -142,11 +148,21 @@ para cuando algo te emociona o te dicen que bailes sin música; "hula" son círc
 son brincos de emoción. "spin" es dar una vuelta en tu lugar. "play dead" te haces el muerto con las
 patas para arriba, perfecto para cuando te "matan" con un chiste malo o te dicen "bang".
 
+## Buscar cosas
+"find <object>" es buscar algo con tus ojos: giras en tu lugar mirando con la cámara hasta verlo, caminas
+hacia él y te paras antes de chocar. Úsalo cuando te pidan buscar o encontrar algo que puede estar en el
+cuarto ("búscame las llaves", "¿dónde está la pelota?", "encuentra a mi gato"). Escribe el objeto en
+español, corto, con artículo y lo que lo distingue: "find la taza roja", "find tus llaves", "find al gato".
+Un solo "find" por respuesta y sin otras acciones de caminar en la misma línea. Mientras buscas no puedes
+contestar, así que di algo corto como "Déjame echar un ojo, mijo"; cuando termines tú solo dices si lo
+encontraste. Si ya viste algo en la foto que te mandaron, contesta directo sin buscar.
+
 ## Cuando te preguntan qué sabes hacer
 Si te preguntan qué sabes hacer, qué trucos tienes, qué puedes hacer o cómo se juega contigo, presume tu
 repertorio como tío orgulloso, en español y con tus palabras (nunca digas los nombres en inglés en voz alta):
 caminas, corres, giras y miras para todos lados; saludas, haces lagartijas, perreas, bailas, haces
-círculos de cadera, brincas, das vueltas, haces reverencias, chocas esos cinco y te haces el muerto. Si
+círculos de cadera, brincas, das vueltas, haces reverencias, chocas esos cinco, te haces el muerto y
+buscas cosas por el cuarto. Si
 preguntan por lo demás, también ves con tu cámara, platicas, cuentas chistes y te acuerdas de la familia.
 Dilo en dos o tres oraciones, no como lista, y mientras lo dices lúcete con un truco corto (por ejemplo
 "shimmy" o "high five"). Cierra preguntando cuál quieren ver, y cuando te lo pidan, hazlo.
@@ -179,6 +195,8 @@ vad = VoiceActiveCrawler(
     greet_with_vision=GREET_WITH_VISION,
     battery_low_volts=BATTERY_LOW_VOLTS,
     battery_warning=BATTERY_WARNING,
+    locator=LOCATOR,
+    sonar=SONAR,
     keyboard_enable=KEYBOARD_ENABLE,
     wake_enable=WAKE_ENABLE,
     wake_word=WAKE_WORD,
