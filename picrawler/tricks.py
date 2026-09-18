@@ -11,6 +11,8 @@ from typing import NamedTuple
 from . import body, gait
 
 NEUTRAL = gait.NEUTRAL
+# pause at each reversal of a wiggle so the servos' current spike settles first
+SETTLE = 0.08
 
 
 class Move(NamedTuple):
@@ -48,7 +50,7 @@ def nod():
     """Yes."""
     moves = []
     for _ in range(2):
-        moves += [Move(pose(pitch=10), speed=75), Move(pose(pitch=-6), speed=75)]
+        moves += [Move(pose(pitch=10), speed=55), Move(pose(pitch=-6), speed=55)]
     return moves + [Move(pose(), speed=60)]
 
 
@@ -56,16 +58,18 @@ def shake_head():
     """No."""
     moves = []
     for _ in range(3):
-        moves += [Move(pose(yaw=14), speed=80), Move(pose(yaw=-14), speed=80)]
+        moves += [Move(pose(yaw=10), speed=55, hold=SETTLE), Move(pose(yaw=-10), speed=55, hold=SETTLE)]
     return moves + [Move(pose(), speed=60)]
 
 
 def shimmy():
-    """Get low and wiggle: fast yaw with a counter-roll, like shoulders going."""
+    """Get low and wiggle: yaw with a counter-roll, like shoulders going.
+    Kept small and slow: every servo reverses on each wiggle, and fast
+    reversals browned the Pi 5 out (docs/pi-config.md, Power)."""
     moves = []
-    for _ in range(4):
-        moves += [Move(pose(z=-8, yaw=10, roll=-6), speed=90),
-                  Move(pose(z=-8, yaw=-10, roll=6), speed=90)]
+    for _ in range(3):
+        moves += [Move(pose(z=-4, yaw=7, roll=-4), speed=50, hold=SETTLE),
+                  Move(pose(z=-4, yaw=-7, roll=4), speed=50, hold=SETTLE)]
     return moves + [Move(pose(), speed=60)]
 
 
@@ -77,7 +81,7 @@ def hula(radius=18, tilt=6, points=12):
             a = direction * 2 * math.pi * k / points
             c, s = math.cos(a), math.sin(a)
             # lean toward the side the body has moved to
-            frames.append(Move(pose(x=radius * c, y=radius * s, roll=-tilt * s, pitch=tilt * c), speed=85))
+            frames.append(Move(pose(x=radius * c, y=radius * s, roll=-tilt * s, pitch=tilt * c), speed=55))
         return frames
     return circle(1) + circle(-1) + [Move(pose(), speed=60)]
 

@@ -413,8 +413,8 @@ class VoiceActiveCrawler(VoiceAssistant):
             return
         self.crawler.trot(half_cycles=half_cycles, stride=30, speed=80)
 
-    # every servo moves on every frame: same current draw worry as the twerk
-    HEAVY_TRICKS = ("spin", "bounce")
+    # every servo moves on every frame (shimmy/hula reverse them too): same current draw worry as the twerk
+    HEAVY_TRICKS = ("spin", "bounce", "shimmy", "hula")
 
     def trick(self, name):
         if name in self.HEAVY_TRICKS:
