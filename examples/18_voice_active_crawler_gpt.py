@@ -63,8 +63,10 @@ FAREWELL = "Órale, ahí nos vemos, mijo. Aquí ando si me necesitas."
 
 # Speak sentence-by-sentence while the answer is still being generated (much less dead air)
 STREAM_SPEECH = True
-# Long-term memory file; say "acuérdate que ..." / "apunta que ..." to add facts
+# Long-term memory: after each conversation a small model picks out facts worth keeping
+# (names, birthdays, likes, running jokes) and a one-line summary, saved to MEMORY_FILE.
 MEMORY_FILE = "petronilo_memory.json"
+memory_llm = LLM(api_key=API_KEY, model="gpt-4.1-mini")
 # Greet whoever is on camera when woken (adds ~3 s before he listens; replaces ANSWER_ON_WAKE)
 GREET_WITH_VISION = False
 # Battery watch (2S li-ion: 7.4 V nominal). He complains in character when low, at most every 10 min.
@@ -116,7 +118,11 @@ varias acciones separadas por coma. Si no hace falta moverte, deja la línea ACT
 reggaetón o te pidan que perrees; presume que eres el rey del perreo de la familia.
 "trot" es correr: trotas hacia adelante un par de segundos, mucho más rápido que "forward". Úsalo cuando
 te pidan correr, trotar o apurarte, o cuando presumas lo veloz que eres.
-Si alguien te dice "acuérdate que..." o "apunta que...", ese dato se guarda en tu memoria: confírmalo con gracia.
+
+## Tu memoria
+Tienes memoria de largo plazo: al final de cada plática se guarda solo lo que vale la pena recordar, y lo que
+ya sabes aparece abajo. Úsalo con naturalidad, como un tío que se acuerda de todo, sin recitarlo. Si te piden
+que te acuerdes de algo o que olvides algo, confírmalo con gracia; se guarda solo.
 
 ## Response Requirements
 ### Format
@@ -137,6 +143,7 @@ vad = VoiceActiveCrawler(
     farewell=FAREWELL,
     stream_speech=STREAM_SPEECH,
     memory_file=MEMORY_FILE,
+    memory_llm=memory_llm,
     greet_with_vision=GREET_WITH_VISION,
     battery_low_volts=BATTERY_LOW_VOLTS,
     battery_warning=BATTERY_WARNING,

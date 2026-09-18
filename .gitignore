@@ -9,3 +9,4 @@ backups/*
 __pycache__/
 .claude/worktrees/
 .claude/settings.local.json
+examples/petronilo_memory.json

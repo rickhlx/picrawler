@@ -148,6 +148,7 @@ Helper modules used by the examples (not run directly):
 
 - `voice_active_crawler.py` — `VoiceActiveCrawler`, the voice assistant base class that maps LLM actions to robot moves.
 - `petronilo_voice.py` — `PetroniloTTS` (OpenAI TTS with a persona, Piper fallback) and `HybridSTT` (offline Vosk wake word + OpenAI transcription).
+- `memory.py` — `Memory`, long-term memory the assistant updates on its own after each conversation.
 - `spanish_tts.py` — Mexican Spanish Piper model name and `EspeakES`, a Spanish Espeak voice.
 - `petronilo.service` — systemd unit to run Petronilo on boot.
 
@@ -169,7 +170,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
 - **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota"), both refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.
-- **Memory:** say "acuérdate que ..." and the fact is saved to `petronilo_memory.json` and loaded into the prompt on the next start.
+- **Memory:** when a conversation ends, a small model (`gpt-4.1-mini`) reads it and adds, corrects or forgets facts about the family, plus a one-line summary of the chat, in `petronilo_memory.json` (Pi-local, not tracked). Both are in his prompt from the next turn on; nobody has to say "acuérdate".
 
 For a fully offline setup, switch to the Piper TTS / Vosk STT lines commented in the script, or use `20_voice_active_crawler_ollama.py`.
 

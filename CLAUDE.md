@@ -47,7 +47,8 @@ examples/              # Numbered demo scripts (0-20 match the online course; 21
   spanish_tts.py              # Mexican Spanish Piper model name + EspeakES
   twerk.py                    # Reggaeton beat synthesis + twerk routine (also used by the "twerk" action)
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
-  petronilo_memory.json       # Facts Petronilo was told to remember
+  memory.py                   # Memory: facts + chat summaries learned after each conversation
+  petronilo_memory.json       # Petronilo's learned memory (Pi-local, git-ignored)
   secret.py                   # API keys (git-ignored)
 picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc.py, install.sh
 ```
@@ -91,7 +92,7 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 
-Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_file` ("acuérdate que ..." facts persisted to JSON and added to the prompt), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
+Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_file` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
 
 ### LLM backends
 
