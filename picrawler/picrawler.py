@@ -5,6 +5,7 @@ from . import body, gait
 import os
 import time
 import math
+from contextlib import contextmanager
 
 class Picrawler(Robot):
     A = 48
@@ -156,17 +157,27 @@ class Picrawler(Robot):
         starting and ending in the stand pose. stride/strafe are mm and turn
         is degrees per half cycle; see gait.Trot.
         '''
+        with self.neutral_stance():
+            trot = gait.Trot(lift=lift)
+            for _ in range(half_cycles):
+                for frame in trot.half_cycle(stride, strafe, turn):
+                    self.do_step(body.to_step(frame), speed=speed)
+            for frame in trot.settle():
+                self.do_step(body.to_step(frame), speed=speed)
+
+    @contextmanager
+    def neutral_stance(self):
+        '''
+        Stand, step one leg at a time into the symmetric gait.NEUTRAL stance,
+        and step back to the starting stand on exit. The body must end in
+        NEUTRAL too; body-frame routines (trot, tricks) run inside it.
+        '''
         if not self.move_list.is_stand():
             self.do_action('stand', speed=60)
         start = [body.to_body(i, c) for i, c in enumerate(self.current_step_all_leg_value())]
         for frame in gait.reposition(start, gait.NEUTRAL):
             self.do_step(body.to_step(frame), speed=80)
-        trot = gait.Trot(lift=lift)
-        for _ in range(half_cycles):
-            for frame in trot.half_cycle(stride, strafe, turn):
-                self.do_step(body.to_step(frame), speed=speed)
-        for frame in trot.settle():
-            self.do_step(body.to_step(frame), speed=speed)
+        yield
         for frame in gait.reposition(gait.NEUTRAL, start):
             self.do_step(body.to_step(frame), speed=80)
 
