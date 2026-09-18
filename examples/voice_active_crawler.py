@@ -19,7 +19,6 @@ class VoiceActiveCrawler(VoiceAssistant):
         "stand":        ("do_action", {"motion_name": "stand", "step": 1, "speed": 50}),
         "wave":         ("do_action", {"motion_name": "wave", "step": 1, "speed": 60}),
         "push up":      ("do_action", {"motion_name": "push_up", "step": 1, "speed": 50}),
-        "dance":        ("do_action", {"motion_name": "dance", "step": 1, "speed": 70}),
         "twerk":        ("self:party", {"seconds": 12}),   # reggaeton routine from twerk.py
         "look left":    ("do_action", {"motion_name": "look_left", "step": 1, "speed": 60}),
         "look right":   ("do_action", {"motion_name": "look_right", "step": 1, "speed": 60}),
@@ -136,7 +135,6 @@ class VoiceActiveCrawler(VoiceAssistant):
         "saludar": "wave", "saluda": "wave", "saludo": "wave",
         "lagartijas": "push up", "lagartija": "push up", "flexiones": "push up",
         "flexión": "push up", "hacer lagartijas": "push up", "push ups": "push up", "pushup": "push up",
-        "bailar": "dance", "baila": "dance", "baile": "dance",
         "perrear": "twerk", "perrea": "twerk", "perreo": "twerk", "twerkear": "twerk", "twerkea": "twerk",
         "twerking": "twerk", "modo fiesta": "twerk", "fiesta": "twerk", "reggaeton": "twerk",
         "reguetón": "twerk", "regueton": "twerk", "bailar reggaeton": "twerk", "bailar reguetón": "twerk",

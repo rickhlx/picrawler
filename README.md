@@ -131,7 +131,7 @@ sudo python3 ~/picrawler/examples/1_move.py
 | 11 | `11_record_new_step.py` | Record custom steps via keyboard |
 | 12 | `12_twist.py` | Twist / body rotation to music |
 | 13 | `13_emotional_robot.py` | Emotional expression robot |
-| 14 | `14_preset_actions.py` | Pose demonstration (wave, dance, look up/down, etc.) |
+| 14 | `14_preset_actions.py` | Pose demonstration (wave, look up/down, etc.) |
 | 15 | `15_stt.py` | Speech-to-text demo |
 | 16 | `16_tts.py` | Text-to-speech demo (Spanish Piper voice) |
 | 17 | `17_online_llm_test.py` | Text chat with an OpenAI model (`gpt-5.6-luna`) |
@@ -164,7 +164,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 - **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted). After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; silence or a goodbye sends him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
-- **Actions:** the usual moves (forward, turn, sit, wave, dance, look around...) plus `twerk`, which is refused on a low battery.
+- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk`, which is refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.
 - **Memory:** say "acuérdate que ..." and the fact is saved to `petronilo_memory.json` and loaded into the prompt on the next start.
 

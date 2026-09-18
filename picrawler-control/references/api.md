@@ -81,7 +81,6 @@ A `dict`-like object that generates leg coordinates on access. Available keys:
 | `look_right` | Rotate body right |
 | `look_up` | Rotate body up |
 | `look_down` | Rotate body down |
-| `dance` | Dancing motion |
 
 Access: `crawler.move_list['forward']` returns a list of coordinate arrays.
 

@@ -37,10 +37,6 @@ def look_down(spider):
         spider.do_step(coord, 60)
 
 
-def dance(spider):
-    spider.do_action('dance', speed=60)
-
-
 def wave_hand(spider):
     coords = [
         # stand
@@ -390,7 +386,6 @@ actions_dict = {
     "stand": stand,
     # "turn_left": turn_left_angle,
     # "turn_right": turn_right_angle,
-    # "dance": dance,
     "wave_hand": wave_hand,
     "shake_hand": shake_hand,
     "fighting": fighting,

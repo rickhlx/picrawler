@@ -55,7 +55,7 @@ picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc
   - `set_angle(angles_list, speed)` — Low-level servo angle write with limit clamping.
   - `cali_helper_web(leg, pos, enter)` — Per-leg calibration adjustment, persists offsets to `~/.config/.picrawler.config`.
 
-- **`Picrawler.MoveList(dict)`** — Inner class defining all gait patterns as `@property` methods. Each property returns a list of frames, where each frame is 4 `[x, y, z]` leg-tip coordinates. Key gaits: `stand`, `sit`, `forward`, `backward`, `turn_left`, `turn_right`, `wave`, `dance`, `push_up`, `look_left/right/up/down`, `turn_left_angle`, `turn_right_angle`. Uses two decorators:
+- **`Picrawler.MoveList(dict)`** — Inner class defining all gait patterns as `@property` methods. Each property returns a list of frames, where each frame is 4 `[x, y, z]` leg-tip coordinates. Key gaits: `stand`, `sit`, `forward`, `backward`, `turn_left`, `turn_right`, `wave`, `push_up`, `look_left/right/up/down`, `turn_left_angle`, `turn_right_angle`. Uses two decorators:
   - `@check_stand` — Auto-prepends `stand` frames if the robot isn't standing.
   - `@normal_action(mode)` — Swaps leg order based on `stand_position` toggle (0 or 1), alternating the supporting vs. lifting legs each cycle.
 
@@ -77,7 +77,7 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Supported actions
 
-`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `dance`, `twerk`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and is refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
+`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and is refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 
