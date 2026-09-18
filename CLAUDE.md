@@ -140,4 +140,8 @@ Configure API keys in `examples/secret.py` before running LLM-based examples.
 
 ## Calibration data
 
-Servo offset calibration is stored at `~/.config/.picrawler.config`. The file is read/written by `robot_hat.Robot` via the `db` parameter passed to `super().__init__()`.
+Servo offset calibration is stored at `~/.config/.picrawler.config`. The file is read/written by `robot_hat.Robot` via the `db` parameter passed to `super().__init__()`. The examples run under `sudo`, so on the Pi that is `/root/.config/.picrawler.config`.
+
+## Device configuration
+
+`docs/pi-config.md` records the Pi's hardware, firmware, boot config, audio routing, installed packages and services, with open findings from the last audit.
