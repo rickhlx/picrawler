@@ -11,6 +11,7 @@ Quick Links:
     - [robot-hat library](#robot-hat-library)
     - [vilib library](#vilib-library)
     - [picrawler library](#picrawler-library)
+    - [Updating](#updating)
   - [Examples](#examples)
     - [Spanish voice](#spanish-voice)
     - [Petronilo voice assistant](#petronilo-voice-assistant)
@@ -28,7 +29,15 @@ Quick Links:
 
 ## Installation
 
-- <https://docs.sunfounder.com/projects/pi-crawler/en/latest/python/python_start/install_all_modules.html>
+This setup uses forks of the SunFounder libraries:
+
+| Library | Repo | Branch | Changes from upstream |
+|---------|------|--------|-----------------------|
+| robot-hat | [rickhlx/robot-hat](https://github.com/rickhlx/robot-hat) | `2.5.x` | Runs on macOS / non-Pi machines with mocked hardware |
+| picrawler | [rickhlx/picrawler](https://github.com/rickhlx/picrawler) | `main` | Spanish voices, Petronilo voice assistant, twerk demo |
+| vilib | [sunfounder/vilib](https://github.com/sunfounder/vilib) | default | Upstream, not forked |
+
+The upstream guide is still useful for background: <https://docs.sunfounder.com/projects/pi-crawler/en/latest/python/python_start/install_all_modules.html>
 
 ### install tool
 
@@ -38,9 +47,11 @@ sudo apt install git python3-pip python3-setuptools python3-smbus
 
 ### robot-hat library
 
+Also installs `sunfounder-voice-assistant`, which the voice examples need.
+
 ```bash
 cd ~/
-git clone -b 2.5.x --depth=1 https://github.com/sunfounder/robot-hat.git
+git clone -b 2.5.x --depth=1 https://github.com/rickhlx/robot-hat.git
 cd robot-hat
 sudo python3 install.py
 ```
@@ -56,9 +67,22 @@ sudo python3 install.py
 
 ### picrawler library
 
+Clone to `~/picrawler`; `petronilo.service` expects the repo there.
+
 ```bash
 cd ~/
-git clone --depth=1 https://github.com/sunfounder/picrawler.git
+git clone https://github.com/rickhlx/picrawler.git
+sudo pip3 install ~/picrawler --break-system-packages
+# used by twerk.py and the Petronilo assistant
+sudo pip3 install numpy requests --break-system-packages
+```
+
+### Updating
+
+```bash
+cd ~/robot-hat && git pull && sudo python3 install.py
+cd ~/picrawler && git pull
+sudo pip3 uninstall picrawler --break-system-packages -y
 sudo pip3 install ~/picrawler --break-system-packages
 ```
 
