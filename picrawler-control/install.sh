@@ -4,6 +4,13 @@
 
 set -e
 
+# Everything is cloned under ~ and the service unit points at ~/picrawler, so
+# under sudo it would all land in /root. The steps that need root use sudo.
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Run this as your normal user, not with sudo." >&2
+    exit 1
+fi
+
 echo "============================================"
 echo " PiCrawler Control Skill Installation"
 echo "============================================"
