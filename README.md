@@ -166,7 +166,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 `18_voice_active_crawler_gpt.py` runs "Petronilo", a Spanish-speaking, joke-cracking Mexican-uncle persona:
 
-- **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted). After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; silence or a goodbye sends him back to waiting.
+- **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted), with the question in the same breath ("compa, ¿qué hora es?") or on its own to get a "¿Qué pasó, mijo?" first. After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; what he hears in that window that isn't meant for him (people talking to each other, the TV) he ignores, and two of those in a row, silence or a goodbye send him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
 - **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota"), both refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.

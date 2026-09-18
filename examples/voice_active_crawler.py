@@ -45,6 +45,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         # replying to the wake word and listening again.
         self.one_breath = one_breath
         self._wake_utterance = None   # set by the wake-word thread when the question came with it
+        self._ignored = False         # the last reply was IGNORE_REPLY
         # Vision greeting on wake (opt-in: adds ~3s before listening)
         self.greet_with_vision = greet_with_vision
         if greet_with_vision:
@@ -128,11 +129,27 @@ class VoiceActiveCrawler(VoiceAssistant):
     def before_think(self, text):
         self._refresh_system_prompt()
         if self._recording and text:
-            self._transcript.append(("user", text))
+            self._transcript.append(("user", text.removeprefix(self.FOLLOW_UP_TAG)))
 
     def after_think(self, text):
-        if self._recording and text:
+        self._ignored = self._is_ignored(text)
+        if not self._recording:
+            return
+        if self._ignored:
+            # overheard, not said to him: keep it out of memory too
+            if self._transcript and self._transcript[-1][0] == "user":
+                self._transcript.pop()
+        elif text:
             self._transcript.append(("assistant", self._ACTIONS_RE.split(text, maxsplit=1)[0].strip()))
+
+    # Follow-up turns (no wake word) are sent with FOLLOW_UP_TAG; the prompt tells
+    # the model to reply IGNORE_REPLY alone when such a turn was not meant for it.
+    FOLLOW_UP_TAG = "(sin decir tu nombre) "
+    IGNORE_REPLY = "IGNORAR"
+    MAX_IGNORED = 2   # overheard turns in a row before going back to the wake word
+
+    def _is_ignored(self, text):
+        return (text or "").strip().upper().startswith(self.IGNORE_REPLY)
 
     def _refresh_system_prompt(self):
         msgs = self.llm.messages
@@ -185,6 +202,8 @@ class VoiceActiveCrawler(VoiceAssistant):
             # Streaming think() already spoke this and queued its actions.
             self._spoken_result = None
             return ""
+        if self._is_ignored(text):
+            return ""   # not meant for him: no words, no actions
         # Accept "ACTIONS:" or a translated "ACCIONES:" label, any case.
         result = re.split(r'\n?\s*(?:ACTIONS|ACCIONES|Acciones|Actions)\s*:\s*', text.strip(), maxsplit=1)
 
@@ -291,6 +310,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         response = self.llm.prompt(text, **kwargs)
         pipeline = SpeechPipeline(self.tts)
         llm_text, spoken_upto, speaking = "", 0, True
+        undecided = True   # until the reply can no longer turn out to be IGNORE_REPLY
         try:
             for word in response:
                 if not self.running:
@@ -301,6 +321,14 @@ class VoiceActiveCrawler(VoiceAssistant):
                 llm_text += word
                 if not speaking:
                     continue
+                if undecided:
+                    head = llm_text.lstrip().upper()
+                    if head.startswith(self.IGNORE_REPLY):
+                        speaking = False
+                        continue
+                    if self.IGNORE_REPLY.startswith(head):
+                        continue
+                    undecided = False
                 m = self._ACTIONS_RE.search(llm_text)
                 if m:
                     pipeline.feed(llm_text[spoken_upto:m.start()])
@@ -454,6 +482,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         self._finish_round_motion()
         if not self.follow_up_seconds or not hasattr(self.stt, "follow_up_timeout"):
             return
+        ignored = 0
         while self.running:
             print(f"(sigo escuchando {self.follow_up_seconds}s, sin palabra clave; di 'adiós' para terminar)")
             self.stt.follow_up_timeout = self.follow_up_seconds
@@ -469,8 +498,16 @@ class VoiceActiveCrawler(VoiceAssistant):
                     self.tts.say(self.farewell)
                 return
             self.on_heard(text)
-            result = self.think(text, disable_image=not self._wants_image(text))
+            result = self.think(self.FOLLOW_UP_TAG + text, disable_image=not self._wants_image(text))
             response_text = self.parse_response(result)
+            if self._ignored:
+                ignored += 1
+                print("(no era para mí)")
+                if ignored >= self.MAX_IGNORED:
+                    print("(vuelvo a esperar la palabra clave)")
+                    return
+                continue
+            ignored = 0
             if response_text:
                 self.before_say(response_text)
                 self.tts.say(response_text)
