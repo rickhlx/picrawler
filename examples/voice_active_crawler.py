@@ -40,7 +40,8 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
-                 battery_low_volts=7.3, battery_warning="", **kwargs):
+                 battery_low_volts=7.3, battery_warning="", locator=None, sonar=None,
+                 find_phrases=None, **kwargs):
         self.action_queue = queue.Queue()
         self._action_busy = threading.Event()
         # Speak sentence-by-sentence while the LLM is still streaming (needs PetroniloTTS)
@@ -59,6 +60,11 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.battery_low_volts = battery_low_volts
         self.battery_warning = battery_warning
         self._last_battery_warning = 0.0
+        # "find <object>": camera + vision model to spot it, sonar to stop short (seeker.py)
+        self.locator = locator
+        self.sonar = sonar
+        self.find_phrases = {**self.FIND_PHRASES, **(find_phrases or {})}
+        self._announcements = []  # said once the round's actions finish
         # Conversation mode: after answering, keep listening this many seconds
         # for the next question without requiring the wake word (0 = off).
         self.follow_up_seconds = follow_up_seconds
@@ -190,6 +196,9 @@ class VoiceActiveCrawler(VoiceAssistant):
         a = action.strip().strip('.;:"\'[]()').lower()
         if a in self.ACTION_MAP or a == "stop":
             return a
+        m = self._FIND_RE.match(a)
+        if m:
+            return "find:" + m.group(1).strip()
         if a in self.ACTION_ALIASES:
             return self.ACTION_ALIASES[a]
         a2 = a.replace("_", " ")
@@ -228,6 +237,7 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def _finish_round_motion(self):
         self._wait_actions_done()
+        self._say_announcements()
         self.crawler.do_action("sit", speed=50)
 
     def on_stop(self):
@@ -408,6 +418,46 @@ class VoiceActiveCrawler(VoiceAssistant):
                 return
         self.crawler.trick(name)
 
+    # ── find: look around for an object and walk up to it ──────────
+
+    # "find red cup" / "buscar taza roja" / "encuentra mi taza" -> find:<target>
+    _FIND_RE = re.compile(r"(?:search for|look for|find|search|buscar|busca|encontrar|encuentra)\s+(.+)")
+
+    FIND_PHRASES = {
+        "near": "¡Lo encontré, mijo! {target}, aquí enfrentito de mí.",
+        "seen": "Ya vi {target}, pero no pude llegar hasta ahí.",
+        "missing": "Chale, di toda la vuelta y no vi {target} por ningún lado.",
+        "blind": "No puedo buscar {target}, mijo: traigo los ojos apagados.",
+    }
+
+    def find(self, target):
+        from seeker import Seeker
+        if not (self.with_image and self.locator):
+            self._announce("blind", target)
+            return
+        frame = "./img_find.jpeg"
+
+        def look():
+            self.capture_image(frame)
+            return frame
+
+        seeker = Seeker(self.crawler, look, self.locator, self.sonar or (lambda: None))
+        result = seeker.seek(target)
+        print(f"(buscar {target!r}: {result})")
+        self._announce("missing" if not result.found else "near" if result.near else "seen", target)
+
+    def _announce(self, kind, target):
+        self._announcements.append(self.find_phrases[kind].format(target=target))
+
+    def _say_announcements(self):
+        lines, self._announcements = self._announcements, []
+        for line in lines:
+            self.tts.say(line)
+            # keep the outcome in the chat so "¿dónde estaba?" has an answer
+            self.llm.messages.append({"role": "assistant", "content": line})
+            if self._recording:
+                self._transcript.append(("assistant", line))
+
     # ── camera: only send a frame when the question is visual ────────
 
     VISUAL_HINTS = ("ves", "ve ", "ver", "mira", "miras", "viendo", "foto", "camara", "imagen",
@@ -480,6 +530,8 @@ class VoiceActiveCrawler(VoiceAssistant):
                 try:
                     if action == 'stop':
                         self.crawler.do_action("sit", speed=50)
+                    elif action.startswith("find:"):
+                        self.find(action[5:])
                     elif action in self.ACTION_MAP:
                         method_name, kwargs = self.ACTION_MAP[action]
                         if method_name.startswith("self:"):
