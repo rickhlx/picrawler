@@ -12,6 +12,7 @@ Quick Links:
     - [vilib library](#vilib-library)
     - [picrawler library](#picrawler-library)
     - [Updating](#updating)
+    - [OpenClaw skill](#openclaw-skill)
   - [Examples](#examples)
     - [Spanish voice](#spanish-voice)
     - [Petronilo voice assistant](#petronilo-voice-assistant)
@@ -84,7 +85,25 @@ cd ~/robot-hat && git pull && sudo python3 install.py
 cd ~/picrawler && git pull
 sudo pip3 uninstall picrawler --break-system-packages -y
 sudo pip3 install ~/picrawler --break-system-packages
+python3 -c "import robot_hat, picrawler; print(robot_hat.__version__, picrawler.__version__)"
+sudo systemctl restart petronilo   # only if the Petronilo service is installed
 ```
+
+If `~/robot-hat` or `~/picrawler` was cloned from SunFounder, point it at the fork before pulling. `reset --hard` discards uncommitted edits in that checkout (`examples/secret.py` is git-ignored and kept):
+
+```bash
+cd ~/robot-hat
+git remote set-url origin https://github.com/rickhlx/robot-hat.git
+git fetch origin 2.5.x && git checkout 2.5.x && git reset --hard origin/2.5.x
+
+cd ~/picrawler
+git remote set-url origin https://github.com/rickhlx/picrawler.git
+git fetch origin main && git checkout main && git reset --hard origin/main
+```
+
+### OpenClaw skill
+
+`picrawler-control/` is an OpenClaw skill that lets an agent drive the robot through natural-language commands. `picrawler-control/install.sh` installs the same libraries as above; see `picrawler-control/SKILL.md` for details.
 
 ----------------------------------------------
 

@@ -189,8 +189,8 @@ Vilib.detect_obj_parameter['qr_y']        # QR Y
 # Capture photo
 from time import strftime, localtime
 name = f"photo_{strftime('%Y-%m-%d-%H-%M-%S', localtime())}"
-Vilib.take_photo(name, "/home/pi/Pictures/")
-# Saved as /home/pi/Pictures/photo_....jpg
+Vilib.take_photo(name, "/home/ricardo/Pictures/")
+# Saved as /home/ricardo/Pictures/photo_....jpg
 
 # Cleanup
 Vilib.camera_close()

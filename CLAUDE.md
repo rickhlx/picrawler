@@ -20,7 +20,9 @@ For development iteration:
 sudo pip3 uninstall picrawler --break -y && sudo pip3 install . --break --no-deps --no-build-isolation
 ```
 
-No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from source, 2.5.x branch), `readchar`.
+No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`.
+
+This repo is a fork of `sunfounder/picrawler` (remote `origin` = `rickhlx/picrawler`). The robot-hat fork mocks GPIO/I2C/audio on non-Pi hosts, so `import robot_hat` / `import picrawler` work on macOS for development (`ROBOT_HAT_MOCK=1` forces the mock on a Pi).
 
 ## Architecture
 
@@ -33,9 +35,15 @@ picrawler/
   stt.py               # Re-exports STT from robot_hat.stt
   tts.py               # Re-exports TTS from robot_hat.tts
   version.py           # Version string (2.1.4)
-examples/              # Numbered demo scripts (0-19, matching online course)
+examples/              # Numbered demo scripts (0-20, matching online course)
   voice_active_crawler.py     # VoiceActiveCrawler class (base, not numbered)
+  petronilo_voice.py          # PetroniloTTS (OpenAI TTS + Piper fallback), HybridSTT, SpeechPipeline
+  spanish_tts.py              # Mexican Spanish Piper model name + EspeakES
+  twerk.py                    # Reggaeton beat synthesis + twerk routine (also used by the "twerk" action)
+  petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
+  petronilo_memory.json       # Facts Petronilo was told to remember
   secret.py                   # API keys (git-ignored)
+picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc.py, install.sh
 ```
 
 **`picrawler/picrawler.py`** — The single-file core:
@@ -69,7 +77,11 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Supported actions
 
-`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `dance`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`.
+`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `dance`, `twerk`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and is refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
+
+### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
+
+Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_file` ("acuérdate que ..." facts persisted to JSON and added to the prompt), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
 
 ### LLM backends
 
@@ -88,19 +100,25 @@ sudo python3 examples/3_sound_effect.py      # Sound effects
 sudo python3 examples/4_avoid.py             # Obstacle avoidance
 sudo python3 examples/5_display.py           # Camera display
 sudo python3 examples/7_bull_fight.py        # Bull fight game
-sudo python3 examples/9_preset_actions.py    # Pose demonstration
+sudo python3 examples/8_treasure_hunt.py     # Treasure hunt (Spanish colour names)
+sudo python3 examples/9_do_step.py           # Custom step control
+sudo python3 examples/12_twist.py            # Twist to music
 
 # Extended examples (14)
-sudo python3 examples/14_do_step.py          # Custom step control
+sudo python3 examples/14_preset_actions.py   # Pose demonstration
 
-# STT/TTS demos (15-16)
+# STT/TTS demos (15-16), TTS in Spanish
 sudo python3 examples/15_stt.py              # Speech-to-text
 sudo python3 examples/16_tts.py              # Text-to-speech
 
-# Voice AI (17-19)
-sudo python3 examples/17_voice_active_crawler_gpt.py     # OpenAI GPT-4o
-sudo python3 examples/18_voice_active_crawler_ollama.py   # Local Ollama
+# LLM / Voice AI (17-20)
+sudo python3 examples/17_online_llm_test.py               # Text chat, OpenAI gpt-5.6-luna
+sudo python3 examples/18_voice_active_crawler_gpt.py      # Petronilo, Spanish, OpenAI
 sudo python3 examples/19_voice_active_crawler_doubao.py   # Doubao (Chinese)
+sudo python3 examples/20_voice_active_crawler_ollama.py   # Local Ollama, Spanish
+
+# Not numbered
+sudo python3 examples/twerk.py --bpm 95 --volume 40 --speed 70   # Reggaeton twerk
 ```
 
 Configure API keys in `examples/secret.py` before running LLM-based examples.

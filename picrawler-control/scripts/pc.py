@@ -16,7 +16,7 @@ Examples:
   pc.py move forward --steps 3 --speed 60
   pc.py pose stand --speed 40
   pc.py sensor distance
-  pc.py sound play /home/pi/picrawler/examples/sounds/talk1.wav --volume 80
+  pc.py sound play /home/ricardo/picrawler/examples/sounds/talk1.wav --volume 80
 """
 
 import sys

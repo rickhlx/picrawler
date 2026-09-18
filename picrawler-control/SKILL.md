@@ -9,14 +9,14 @@ metadata:
       bins: ["python3"]
       python: ["picrawler", "robot_hat", "vilib"]
     install:
-      - id: picrawler
-        kind: shell
-        cmd: |
-          cd ~ && git clone https://github.com/sunfounder/picrawler.git --depth 1 && cd picrawler && sudo python3 setup.py install
       - id: robot-hat
         kind: shell
         cmd: |
-          cd ~ && git clone -b v2.0 https://github.com/sunfounder/robot-hat.git --depth 1 && cd robot-hat && sudo python3 install.py
+          cd ~ && git clone -b 2.5.x https://github.com/rickhlx/robot-hat.git && cd robot-hat && sudo python3 install.py
+      - id: picrawler
+        kind: shell
+        cmd: |
+          cd ~ && git clone https://github.com/rickhlx/picrawler.git && sudo pip3 install ~/picrawler --break-system-packages
       - id: vilib
         kind: shell
         cmd: |
@@ -110,10 +110,10 @@ Parse `stdout` from exec output to get the distance value.
 from robot_hat import Music
 m = Music()
 m.music_set_volume(50)
-m.sound_play('/home/pi/picrawler/examples/sounds/talk1.wav')
+m.sound_play('/home/ricardo/picrawler/examples/sounds/talk1.wav')
 ```
 
-Other available sound effects: `sign.wav`, `talk3.wav`. Music files are in `/home/pi/picrawler/examples/musics/`.
+Other available sound effects: `sign.wav`, `talk3.wav`. Music files are in `/home/ricardo/picrawler/examples/musics/`.
 
 ### Take a Photo
 
@@ -124,9 +124,9 @@ Vilib.camera_start(vflip=False, hflip=False)
 Vilib.display(local=True, web=True)
 sleep(1)
 name = f"photo_{strftime('%Y-%m-%d-%H-%M-%S', localtime())}"
-Vilib.take_photo(name, '/home/pi/Pictures/')
+Vilib.take_photo(name, '/home/ricardo/Pictures/')
 Vilib.camera_close()
-print(f"saved: /home/pi/Pictures/{name}.jpg")
+print(f"saved: /home/ricardo/Pictures/{name}.jpg")
 ```
 
 ### Detect Faces / Colors

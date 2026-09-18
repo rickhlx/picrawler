@@ -20,7 +20,7 @@ sudo apt install -y git python3-pip python3-setuptools python3-smbus
 echo "[3/5] Installing robot-hat..."
 cd ~
 if [ ! -d "robot-hat" ]; then
-    git clone -b v2.0 https://github.com/sunfounder/robot-hat.git --depth 1
+    git clone -b 2.5.x https://github.com/rickhlx/robot-hat.git
     cd robot-hat && sudo python3 install.py
 else
     echo "   robot-hat already exists, skipping"
@@ -40,8 +40,8 @@ fi
 echo "[5/5] Installing picrawler..."
 cd ~
 if [ ! -d "picrawler" ]; then
-    git clone https://github.com/sunfounder/picrawler.git --depth 1
-    cd picrawler && sudo python3 setup.py install
+    git clone https://github.com/rickhlx/picrawler.git
+    sudo pip3 install ~/picrawler --break-system-packages
 else
     echo "   picrawler already exists, skipping"
 fi
