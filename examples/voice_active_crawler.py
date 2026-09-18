@@ -40,9 +40,13 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
-                 battery_low_volts=7.3, battery_warning="", locator=None, sonar=None,
-                 find_phrases=None, **kwargs):
+                 battery_low_volts=7.3, battery_warning="", move_speed_limit=100, max_actions=None,
+                 locator=None, sonar=None, find_phrases=None, **kwargs):
         self.action_queue = queue.Queue()
+        # Calm body while talking: every move capped at this speed, and at most
+        # max_actions per reply. The amp and the servos share the HAT 5 V rail.
+        self.move_speed_limit = move_speed_limit
+        self.max_actions = max_actions
         self._action_busy = threading.Event()
         # Speak sentence-by-sentence while the LLM is still streaming (needs PetroniloTTS)
         self.stream_speech = stream_speech
@@ -113,7 +117,7 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def _init_crawler(self):
         try:
-            self.crawler = Picrawler()
+            self.crawler = Picrawler(speed_limit=self.move_speed_limit)
             time.sleep(1)
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Picrawler: {e}")
@@ -224,6 +228,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         else:
             actions = ['stop']
 
+        if self.max_actions is not None:
+            actions = actions[:self.max_actions] or ['stop']
         for action in actions:
             self.action_queue.put(action)
 

@@ -70,7 +70,7 @@ picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc
 
 - Leg ordering in coordinate lists: `[leg0, leg1, leg2, leg3]` = right front, left front, left rear, right rear. Leg-local frame: x sideways out of the body, y along the body away from its centre, z height (negative down).
 
-- `Picrawler(max_dps=...)` overrides robot_hat's servo speed cap (428 deg/s, stock servos) for faster replacement servos.
+- `Picrawler(max_dps=...)` overrides robot_hat's servo speed cap (428 deg/s, stock servos) for faster replacement servos. `Picrawler(speed_limit=...)` caps the 0-100 `speed` of every move whatever the caller asks for; Petronilo uses 40 so moving while talking doesn't brown the Pi out.
 
 **IMU, leveling and trot** (`body.py`, `imu.py`, `balance.py`, `gait.py`) work in a body frame (REP-103: x forward, y left, z up; roll + lifts the left side, pitch + drops the nose) and produce `do_step` frames via `body.to_step(points, roll, pitch)`. `imu.MPU6050` talks through `robot_hat.I2C` at 0x68; `axes=` remaps a rotated mounting. `balance.Leveler` is an integral controller with a disc clamp: standing stays inside the shoulder servo's -10 deg limit up to ~11 deg of correction, trotting with the default 15 mm lift up to ~6 deg. `gait.Trot` is stateful (`half_cycle(stride, strafe, turn)`, `settle()`), so commands can change every half cycle. The servos have no feedback, so this is quasi-static leveling, not dynamic balance.
 

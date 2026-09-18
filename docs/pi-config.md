@@ -73,6 +73,12 @@ vcgencmd get_throttled                                    # 0x50000 = under-volt
 - The `trot` action runs at speed 80 (library default 100). In `tricks.py`, `spin`
   runs at 85 (was 100) and `bounce` at 80 (was 95).
 
+- Petronilo moves little and slowly while he talks: every move is capped at
+  servo speed 40 (`Picrawler(speed_limit=)`, `MOVE_SPEED_LIMIT`), each reply
+  runs at most one action (`MAX_ACTIONS`), and the prompt no longer asks for
+  gestures he wasn't asked for. The Pi browned out while he wiggled and talked,
+  when the amp and the servos peak together.
+
 These make brownouts less likely but don't remove the cause.
 
 ### On the Pi (needs sudo)
