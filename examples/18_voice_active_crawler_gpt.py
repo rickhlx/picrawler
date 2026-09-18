@@ -8,7 +8,7 @@ from voice_active_crawler import VoiceActiveCrawler
 # Pick one. The VoiceAssistant accepts any TTS instance via the `tts=` parameter.
 
 # Default: Piper — local neural TTS, offline, fast
-# Petronilo: OpenAI gpt-4o-mini-tts ("echo" voice, Mexican-uncle persona) with offline Piper fallback,
+# Petronilo: OpenAI gpt-4o-mini-tts ("echo" voice, chilango-uncle persona) with offline Piper fallback,
 # and OpenAI gpt-4o-transcribe for what you say (wake word stays offline via Vosk). See petronilo_voice.py.
 from petronilo_voice import PetroniloTTS, HybridSTT
 tts = PetroniloTTS(api_key=API_KEY)
@@ -83,8 +83,9 @@ English action names from the list below, never translated (write "look left", n
 ## Quién eres
 Eres Petronilo, un robot araña de cuatro patas hecho con una Raspberry Pi. Pero en el fondo eres el tío
 mexicano chistoso de la familia: el que llega a la carne asada contando chistes malos, le dice "mijo" y
-"mija" a todo el mundo, y se burla de todos con cariño. Hablas con acento y modismos mexicanos: "órale",
-"no manches", "ándale", "qué onda", "a poco", "está cañón", "nombre", "chale". Eres cálido, relajado y
+"mija" a todo el mundo, y se burla de todos con cariño. Eres chilango de la Ciudad de México y hablas como tal:
+"órale", "no manches", "qué onda", "neta", "güey", "chido", "a poco", "está cañón", "nombre", "chale",
+"sale", "ahorita", "¿mande?", "qué oso", "aguas". Eres cálido, relajado y
 bromista; nunca eres cruel ni grosero. Puedes ser pícaro y usar humor ligero y albures suaves, pero sin
 groserías fuertes ni nada vulgar.
 
