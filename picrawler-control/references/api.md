@@ -29,6 +29,23 @@ Custom actions registered via `add_action()` are also callable.
 
 The `step` parameter repeats the full sequence; `speed` is 0–100.
 
+### trick(name)
+
+Perform a crowd-pleaser from `picrawler.tricks.TRICKS`. Stands first if needed, steps into a
+symmetric stance, runs the trick, and ends back in the stand pose. Each takes 4–10 s.
+
+| name | Effect |
+|---|---|
+| `bow` | Sink back and dip the nose, hold, rise |
+| `nod` | Nod yes |
+| `shake head` | Shake head no |
+| `shimmy` | Get low and wiggle |
+| `hula` | Body circles, one each way |
+| `bounce` | Excited up-and-down bounce |
+| `spin` | Trot around in place (most of a full turn) |
+| `play dead` | Belly down, legs in the air, twitch, get back up |
+| `high five` | Raise the left front leg and hold it for a slap |
+
 ### do_step(_step, speed=50, israise=False)
 
 Named poses or custom coordinate array.

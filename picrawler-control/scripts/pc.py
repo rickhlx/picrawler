@@ -5,6 +5,7 @@ PiCrawler CLI — control the quadruped robot from the command line.
 Usage:
   pc.py move <action> [--steps N] [--speed N]
   pc.py pose <name> [--speed N]
+  pc.py trick <name>
   pc.py sensor distance
   pc.py sound play <file> [--volume N]
   pc.py sound volume <0-100>
@@ -15,6 +16,7 @@ Usage:
 Examples:
   pc.py move forward --steps 3 --speed 60
   pc.py pose stand --speed 40
+  pc.py trick "play dead"
   pc.py sensor distance
   pc.py sound play /home/ricardo/picrawler/examples/sounds/talk1.wav --volume 80
 """
@@ -45,6 +47,16 @@ def cmd_pose(args):
         sleep(1.0)
     finally:
         pass  # don't auto-sit — caller might chain poses
+
+
+def cmd_trick(args):
+    from picrawler import Picrawler
+    crawler = Picrawler()
+    try:
+        crawler.trick(args.name)
+    finally:
+        crawler.do_step('sit', 40)
+        sleep(1.0)
 
 
 def cmd_sensor(args):
@@ -103,6 +115,15 @@ def main():
     pose_p.add_argument("name", choices=["stand", "sit"])
     pose_p.add_argument("--speed", type=int, default=40, help="Speed 0-100")
     pose_p.set_defaults(func=cmd_pose)
+
+    # trick (names mirror picrawler.tricks.TRICKS; kept literal so --help
+    # works without robot_hat installed)
+    trick_p = sub.add_parser("trick", help="Perform a crowd-pleaser trick")
+    trick_p.add_argument("name", choices=[
+        "bow", "nod", "shake head", "shimmy", "hula",
+        "bounce", "spin", "play dead", "high five",
+    ])
+    trick_p.set_defaults(func=cmd_trick)
 
     # sensor
     sensor_p = sub.add_parser("sensor", help="Read sensors")
