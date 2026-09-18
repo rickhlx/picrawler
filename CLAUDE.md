@@ -42,11 +42,12 @@ picrawler/
   stt.py               # Re-exports STT from robot_hat.stt
   tts.py               # Re-exports TTS from robot_hat.tts
   version.py           # Version string (2.1.4)
-examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot; 24 tricks)
+examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot; 24 tricks; 25 find)
   voice_active_crawler.py     # VoiceActiveCrawler class (base, not numbered)
   petronilo_voice.py          # PetroniloTTS (OpenAI TTS + Piper fallback), HybridSTT, SpeechPipeline
   spanish_tts.py              # Mexican Spanish Piper model name + EspeakES
   twerk.py                    # Reggaeton beat synthesis + twerk routine (also used by the "twerk" action)
+  seeker.py                   # Seeker: scan with the camera, walk up, stop on the ultrasonic; VisionLocator, Sonar
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
   memory.py                   # Memory: facts + chat summaries learned after each conversation
   petronilo_memory.json       # Petronilo's learned memory (Pi-local, git-ignored)
@@ -91,7 +92,7 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Supported actions
 
-`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down`, and the tricks `bow`, `nod`, `shake head`, `shimmy`, `hula`, `bounce`, `spin`, `play dead`, `high five` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; they, `spin` and `bounce` are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
+`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down`, and the tricks `bow`, `nod`, `shake head`, `shimmy`, `hula`, `bounce`, `spin`, `play dead`, `high five` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `find <object>` is parameterised: `normalize_action` turns it into `find:<object>` and `VoiceActiveCrawler.find` runs `seeker.Seeker` (turn in place until the vision model sees it, walk up, stop at 15 cm on the ultrasonic or when it fills the frame); the outcome is spoken once the round's actions finish, and needs `with_image` plus `locator=` (and `sonar=`). `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; they, `spin` and `bounce` are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 
@@ -138,6 +139,9 @@ sudo python3 examples/23_trot.py --level                  # Keyboard trot
 
 # Tricks (24)
 sudo python3 examples/24_tricks.py "play dead" bow        # Named tricks; no args runs all of them
+
+# Find an object (25); stop petronilo.service first, it holds the camera
+sudo python3 examples/25_find.py "red cup"
 
 # Not numbered
 sudo python3 examples/twerk.py --bpm 95 --volume 40 --speed 70   # Reggaeton twerk
