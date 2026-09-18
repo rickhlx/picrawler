@@ -20,7 +20,7 @@ For development iteration, the Pi uses an editable install (one-time) so the che
 sudo pip3 uninstall picrawler --break -y && sudo pip3 install -e . --break --no-deps --no-build-isolation
 ```
 
-Then push the Mac working tree to it with `make sync` (`make sync-dry` to preview, `make deploy` to sync and restart the `petronilo` service, `make logs` to follow it; host is the `picrawler` SSH alias, override with `PI_HOST=`). It excludes Pi-local state (`secret.py`, `petronilo_memory/`, generated media, lgpio pipes) so `--delete` never removes it. Once a change is committed, `git pull --ff-only` on the Pi instead.
+Then push the Mac working tree to it with `make sync` (`make sync-dry` to preview, `make deploy` to sync and restart the `petronilo` service, `make logs` to follow it; host is the `picrawler` SSH alias, override with `PI_HOST=`). It excludes Pi-local state (`secret.py`, `petronilo_memory/`, generated media, lgpio pipes) so `--delete` never removes it. rsync is the only way code reaches the Pi: never `git pull` there, its checkout is just the target of the sync. Each sync writes `~/picrawler/DEPLOYED` on the Pi (`git describe --dirty`, branch, UTC time); `make deployed` prints it. Deploy from `main` with a clean tree unless you're iterating on hardware.
 
 No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`.
 
