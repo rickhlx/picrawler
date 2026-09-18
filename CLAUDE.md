@@ -14,11 +14,13 @@ Build uses `pyproject.toml` (setuptools, no `setup.py`). Install via pip:
 sudo pip3 install ~/picrawler --break-system-packages
 ```
 
-For development iteration:
+For development iteration, the Pi uses an editable install (one-time) so the checkout at `~/picrawler` is what gets imported:
 
 ```bash
-sudo pip3 uninstall picrawler --break -y && sudo pip3 install . --break --no-deps --no-build-isolation
+sudo pip3 uninstall picrawler --break -y && sudo pip3 install -e . --break --no-deps --no-build-isolation
 ```
+
+Then push the Mac working tree to it with `scripts/sync-pi.sh` (`-n` dry run, `-r` restart the `petronilo` service; host is the `picrawler` SSH alias, override with `PI_HOST`). It excludes Pi-local state (`secret.py`, `petronilo_memory.json`, generated media, lgpio pipes) so `--delete` never removes it. Once a change is committed, `git pull --ff-only` on the Pi instead.
 
 No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`.
 
