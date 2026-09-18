@@ -39,7 +39,7 @@ class VoiceActiveCrawler(VoiceAssistant):
     }
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
-                 stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
+                 stream_speech=True, memory_dir=None, memory_llm=None, greet_with_vision=False,
                  battery_low_volts=7.3, battery_warning="", move_speed_limit=100, max_actions=None,
                  locator=None, sonar=None, find_phrases=None, **kwargs):
         self.action_queue = queue.Queue()
@@ -52,8 +52,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.stream_speech = stream_speech
         self._spoken_result = None
         # Long-term memory, learned from each conversation once it ends (needs memory_llm)
-        memory_file = memory_file or os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_memory.json")
-        self.memory = Memory(memory_file, llm=memory_llm, name=kwargs.get("name", "the robot"))
+        memory_dir = memory_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_memory")
+        self.memory = Memory(memory_dir, llm=memory_llm, name=kwargs.get("name", "the robot"))
         self._transcript = []     # (role, text) turns of the current conversation
         self._recording = True    # off for turns that are not part of the conversation
         # Vision greeting on wake (opt-in: adds ~3s before listening)
