@@ -50,6 +50,7 @@ examples/              # Numbered demo scripts (0-20 match the online course; 21
   seeker.py                   # Seeker: scan with the camera, walk up, stop on the ultrasonic; VisionLocator, Sonar
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
   memory.py                   # Memory: facts + chat summaries learned after each conversation
+  petronilo/SOUL.md           # Petronilo's personality, voice, limits and story (OpenClaw-style SOUL.md)
   petronilo_memory/           # Petronilo's learned memory, OpenClaw-style Markdown (Pi-local, git-ignored)
   secret.py                   # API keys (git-ignored)
 picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc.py, install.sh
@@ -96,7 +97,11 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 
-Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_dir` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn). The memory is a Markdown workspace laid out like OpenClaw's: `USER.md` (the family), `MEMORY.md` (plans, running jokes, requests) and `memory/YYYY-MM-DD.md` daily notes with one line per conversation; the prompt gets both files plus the two most recent daily notes. Facts are the `- ` bullets, so the files can be edited by hand with the service stopped. An old `petronilo_memory.json` is migrated on first start and renamed `.migrated`, `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
+Who he is lives in `examples/petronilo/SOUL.md`, modelled on OpenClaw's SOUL.md: identity, core truths, voice, albures, limits, body (including why he moves little and slowly), what he can do and how he treats memory. The script reads it at start-up and places it inside `INSTRUCTIONS`, which keeps only the operating parts the code depends on: the English `ACTIONS:` rule, the action names and when to use them, `find <object>`, and the reply format. Personality changes go in SOUL.md; a new action goes in `INSTRUCTIONS` and `ACTION_MAP`. Restart after editing either.
+
+Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_dir` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
+
+His memory (`examples/petronilo_memory/`) is a Markdown workspace laid out like OpenClaw's, Pi-local and git-ignored unlike SOUL.md: `USER.md` (the family), `MEMORY.md` (plans, running jokes, requests) and `memory/YYYY-MM-DD.md` daily notes with one line per conversation; the prompt gets both files plus the two most recent daily notes. Facts are the `- ` bullets, so the files can be edited by hand with the service stopped. An old `petronilo_memory.json` is migrated on first start and renamed `.migrated`.
 
 ### LLM backends
 
