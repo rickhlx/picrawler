@@ -1,9 +1,9 @@
 from picrawler.voice_assistant import VoiceAssistant
 from picrawler import Picrawler
+from memory import Memory
 import time
 import queue
 import threading
-import json
 import os
 import re
 import sys
@@ -29,18 +29,18 @@ class VoiceActiveCrawler(VoiceAssistant):
     }
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
-                 stream_speech=True, memory_file=None, greet_with_vision=False,
+                 stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
                  battery_low_volts=6.9, battery_warning="", **kwargs):
         self.action_queue = queue.Queue()
         self._action_busy = threading.Event()
         # Speak sentence-by-sentence while the LLM is still streaming (needs PetroniloTTS)
         self.stream_speech = stream_speech
         self._spoken_result = None
-        # Long-term memory (facts the family tells him to remember)
-        self.memory_file = memory_file or os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_memory.json")
-        self.memory = self._load_memory()
-        if self.memory.get("facts"):
-            kwargs["instructions"] = (kwargs.get("instructions", "") + self._memory_section())
+        # Long-term memory, learned from each conversation once it ends (needs memory_llm)
+        memory_file = memory_file or os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_memory.json")
+        self.memory = Memory(memory_file, llm=memory_llm, name=kwargs.get("name", "the robot"))
+        self._transcript = []     # (role, text) turns of the current conversation
+        self._recording = True    # off for turns that are not part of the conversation
         # Vision greeting on wake (opt-in: adds ~3s before listening)
         self.greet_with_vision = greet_with_vision
         if greet_with_vision:
@@ -121,16 +121,20 @@ class VoiceActiveCrawler(VoiceAssistant):
         if self.greet_with_vision:
             self._vision_greeting()
 
-    def on_heard(self, text):
-        self._maybe_remember(text)
-
     def before_think(self, text):
         self._refresh_system_prompt()
+        if self._recording and text:
+            self._transcript.append(("user", text))
+
+    def after_think(self, text):
+        if self._recording and text:
+            self._transcript.append(("assistant", self._ACTIONS_RE.split(text, maxsplit=1)[0].strip()))
 
     def _refresh_system_prompt(self):
         msgs = self.llm.messages
         history = [m for m in msgs if m is not self._system_msg][-(self._history_limit - 1):]
         msgs[:] = [self._system_msg] + history
+        self._system_msg["content"] = self.instructions + self.memory.prompt_section()
 
     # Spanish (and a few loose English) names the LLM may emit -> ACTION_MAP keys
     ACTION_ALIASES = {
@@ -207,6 +211,9 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def on_stop(self):
         self._action_running = False
+        # a conversation cut short by Ctrl-C: learn from it before exiting
+        transcript, self._transcript = self._transcript, []
+        self.memory.learn(transcript)
         self.crawler.do_action("sit", speed=50)
 
     # ── wake word (fuzzy) ─────────────────────────────────────────────
@@ -303,63 +310,16 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── memory ────────────────────────────────────────────────────────
 
-    _REMEMBER_RE = re.compile(
-        r"^(?:oye |compa |petronilo |tio )?(?:acuerdate|recuerda|apunta|anota|no se te olvide|ten en cuenta)"
-        r"(?: de)?(?: que)?\s+(.+)$")
-
-    def _load_memory(self):
-        try:
-            with open(self.memory_file, encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, dict) and isinstance(data.get("facts"), list):
-                return data
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            print(f"(memoria: no se pudo leer {self.memory_file}: {e})")
-        return {"facts": []}
-
-    def _save_memory(self):
-        try:
-            with open(self.memory_file, "w", encoding="utf-8") as f:
-                json.dump(self.memory, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"(memoria: no se pudo guardar: {e})")
-
-    def _memory_section(self):
-        facts = self.memory.get("facts") or []
-        if not facts:
-            return ""
-        lines = "\n".join(f"- {x}" for x in facts[-40:])
-        return ("\n## Lo que sabes de la familia y chistes internos (úsalo para bromear y personalizar)\n"
-                + lines + "\n")
-
-    def _maybe_remember(self, text):
-        if not text:
-            return
-        m = self._REMEMBER_RE.match(self._norm_text(text))
-        if not m:
-            return
-        # keep the original casing/accents of the fact itself
-        fact = text.strip()
-        idx = self._norm_text(text).find(m.group(1))
-        if idx >= 0:
-            fact = text.strip()[idx:idx + len(m.group(1))]
-        fact = fact.strip(" .")
-        if not fact:
-            return
-        self.memory.setdefault("facts", []).append(fact)
-        self._save_memory()
-        print(f"(memoria guardada: {fact})")
-        try:
-            self.llm.add_message("system", f"Dato guardado en tu memoria (ya lo sabes de ahora en adelante): {fact}. "
-                                           f"Confírmalo brevemente y con gracia.")
-        except Exception:
-            pass
+    def _end_conversation(self):
+        transcript, self._transcript = self._transcript, []
+        if transcript:
+            # one LLM call; off the main loop so the next wake word is not delayed
+            threading.Thread(target=self.memory.learn, args=(transcript,), daemon=True).start()
 
     # ── vision greeting on wake (opt-in) ─────────────────────────────
 
     def _vision_greeting(self):
+        self._recording = False
         try:
             prompt = ("Te acaban de llamar. Mira la foto y saluda en UNA frase corta y chistosa a quien veas "
                       "o a lo que veas (si no ves a nadie, di algo gracioso al respecto). Sin línea ACTIONS.")
@@ -369,6 +329,8 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._spoken_result = None
         except Exception as e:
             print(f"(saludo con cámara falló: {e})")
+        finally:
+            self._recording = True
 
     # ── battery ───────────────────────────────────────────────────────
 
@@ -443,6 +405,12 @@ class VoiceActiveCrawler(VoiceAssistant):
         return any(p and p in t for p in self.end_phrases)
 
     def on_finish_a_round(self):
+        try:
+            self._follow_up()
+        finally:
+            self._end_conversation()
+
+    def _follow_up(self):
         self._finish_round_motion()
         if not self.follow_up_seconds or not hasattr(self.stt, "follow_up_timeout"):
             return
