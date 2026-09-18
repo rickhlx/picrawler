@@ -53,6 +53,19 @@ else
     echo "   picrawler already exists, skipping"
 fi
 
+# Restore the servo calibration saved in the repo (make cali-pull), unless this
+# Pi already has offsets of its own. The examples run under sudo, so robot_hat
+# reads them from root's home.
+CALI_PI=/root/.config/.picrawler.config
+CALI_REPO="$HOME/picrawler/calibration/picrawler.config"
+if sudo grep -qs picrawler_servo_offset_list "$CALI_PI"; then
+    echo "   Servo calibration already present, keeping it"
+elif [ -f "$CALI_REPO" ]; then
+    sudo mkdir -p "$(dirname "$CALI_PI")"
+    sudo cp "$CALI_REPO" "$CALI_PI"
+    echo "   Restored servo calibration from $CALI_REPO"
+fi
+
 # 6. Enable speaker (I2S)
 echo "[Optional] Enabling I2S speaker..."
 cd ~/robot-hat

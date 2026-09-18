@@ -143,6 +143,8 @@ Configure API keys in `examples/secret.py` before running LLM-based examples.
 
 Servo offset calibration is stored at `~/.config/.picrawler.config`. The file is read/written by `robot_hat.Robot` via the `db` parameter passed to `super().__init__()`. The examples run under `sudo`, so on the Pi that is `/root/.config/.picrawler.config`.
 
+A copy lives in the repo at `calibration/picrawler.config` so a reinstall keeps it. After recalibrating (Space, then `y` in `0_calibration.py`), run `make cali-pull` and commit the file. `picrawler-control/install.sh` restores it when the Pi has no offsets yet; `make cali-push` overwrites the Pi's offsets with the repo copy.
+
 ## Device configuration
 
 `docs/pi-config.md` records the Pi's hardware, firmware, boot config, audio routing, installed packages and services, with open findings from the last audit.

@@ -117,7 +117,7 @@ sudo python3 ~/picrawler/examples/1_move.py
 
 | # | Example | Description |
 |---|---------|-------------|
-| 0 | `0_calibration.py` | Servo calibration helper |
+| 0 | `0_calibration.py` | Servo calibration helper (Space, then `y` to save; `make cali-pull` backs it up to `calibration/`) |
 | 1 | `1_move.py` | Basic movement control |
 | 2 | `2_keyboard_control.py` | W/A/S/D keyboard control |
 | 3 | `3_sound_effect.py` | Sound effects and Spanish TTS |
