@@ -54,6 +54,9 @@ WAKE_ENABLE = True
 WAKE_WORD = ["compa"]   # near-misses like "compra"/"compadre" are accepted too (see WAKE_ALIASES)
 # Set wake word answer, set empty to disable
 ANSWER_ON_WAKE = "¿Qué pasó, mijo?"
+# Say the question in the same breath ("compa, ¿qué hora es?") and he answers it directly;
+# ANSWER_ON_WAKE is used only when you say just the wake word.
+ONE_BREATH = True
 
 # Conversation mode: after each answer keep listening this many seconds for a
 # follow-up without the wake word. Say one of END_PHRASES to end the chat.
@@ -145,6 +148,7 @@ vad = VoiceActiveCrawler(
     memory_file=MEMORY_FILE,
     memory_llm=memory_llm,
     greet_with_vision=GREET_WITH_VISION,
+    one_breath=ONE_BREATH,
     battery_low_volts=BATTERY_LOW_VOLTS,
     battery_warning=BATTERY_WARNING,
     keyboard_enable=KEYBOARD_ENABLE,

@@ -29,7 +29,7 @@ class VoiceActiveCrawler(VoiceAssistant):
     }
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
-                 stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False,
+                 stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False, one_breath=False,
                  battery_low_volts=6.9, battery_warning="", **kwargs):
         self.action_queue = queue.Queue()
         self._action_busy = threading.Event()
@@ -41,6 +41,10 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.memory = Memory(memory_file, llm=memory_llm, name=kwargs.get("name", "the robot"))
         self._transcript = []     # (role, text) turns of the current conversation
         self._recording = True    # off for turns that are not part of the conversation
+        # "Compa, ¿qué hora es?" in one breath: answer it directly instead of
+        # replying to the wake word and listening again.
+        self.one_breath = one_breath
+        self._wake_utterance = None   # set by the wake-word thread when the question came with it
         # Vision greeting on wake (opt-in: adds ~3s before listening)
         self.greet_with_vision = greet_with_vision
         if greet_with_vision:
@@ -231,7 +235,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         print_callback(result)
         heard = self._norm_text(result)
         for w in (self.stt.wake_words or []):
-            if self._wake_match(self._norm_text(w), heard):
+            if self._wake_rest(self._norm_text(w), heard) is not None:
+                self._wake_utterance = result if self.one_breath and len(self._extra_words(heard)) >= 2 else None
                 return True
         return False
 
@@ -240,14 +245,31 @@ class VoiceActiveCrawler(VoiceAssistant):
         "compa": ("compa", "compra", "comprar", "compacta", "compadre", "con pa", "com"),
     }
 
-    def _wake_match(self, wake, heard):
+    def _wake_rest(self, wake, heard):
+        """What was heard around the wake word, or None if the wake word is not there."""
         for pat in (wake,) + tuple(self._norm_text(a) for a in self.WAKE_ALIASES.get(wake, ())):
             if len(pat) >= 5:
-                if pat in heard:
-                    return True
-            elif re.search(r"\b" + re.escape(pat) + r"\b", heard):
-                return True
-        return False
+                i = heard.find(pat)
+                if i >= 0:
+                    return heard[:i] + " " + heard[i + len(pat):]
+            else:
+                m = re.search(r"\b" + re.escape(pat) + r"\b", heard)
+                if m:
+                    return heard[:m.start()] + " " + heard[m.end():]
+        return None
+
+    # said around the wake word without being a question ("oye compa")
+    WAKE_FILLERS = {"oye", "hey", "ey", "eh", "este", "a", "y", "o"}
+
+    def _extra_words(self, text):
+        """Words in text besides the wake word and fillers."""
+        heard = self._norm_text(text)
+        for w in (self.stt.wake_words or []):
+            rest = self._wake_rest(self._norm_text(w), heard)
+            if rest is not None:
+                heard = rest
+                break
+        return [x for x in heard.split() if x not in self.WAKE_FILLERS]
 
     # ── streaming speech: talk while the LLM is still writing ────────
 
@@ -393,10 +415,28 @@ class VoiceActiveCrawler(VoiceAssistant):
         return any(h in t for h in self.VISUAL_HINTS)
 
     def trigger_wake_word(self):
-        triggered, disable_image, message = super().trigger_wake_word()
+        one_breath = self._wake_utterance is not None and self.stt.is_waked()
+        if one_breath:
+            triggered, disable_image, message = self._one_breath_trigger()
+        if not one_breath or not triggered:
+            triggered, disable_image, message = super().trigger_wake_word()
         if triggered and message and not self._wants_image(message):
             disable_image = True
         return triggered, disable_image, message
+
+    def _one_breath_trigger(self):
+        vosk_text, self._wake_utterance = self._wake_utterance, None
+        self.stt.stop_listening()
+        self._report_battery()
+        # the Vosk text found the wake word; the cloud transcript is the one worth answering
+        audio = getattr(self.stt, "last_audio", None)
+        message = (self.stt.cloud_transcribe(audio) if audio and hasattr(self.stt, "cloud_transcribe") else None)
+        message = message or vosk_text
+        if len(self._extra_words(message)) < 2:
+            return False, False, ""   # it was only the wake word after all: ask and listen as usual
+        print(f"heard: {message}")
+        self.on_heard(message)
+        return True, False, message
 
     # ── conversation mode (no wake word between turns) ───────────────
 
