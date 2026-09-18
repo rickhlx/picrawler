@@ -12,10 +12,12 @@ import sys
 class VoiceActiveCrawler(VoiceAssistant):
 
     ACTION_MAP = {
-        "forward":      ("do_action", {"motion_name": "forward", "step": 1, "speed": 70}),
-        "backward":     ("do_action", {"motion_name": "backward", "step": 1, "speed": 70}),
-        "turn left":    ("do_action", {"motion_name": "turn left", "step": 1, "speed": 70}),
-        "turn right":   ("do_action", {"motion_name": "turn right", "step": 1, "speed": 70}),
+        "forward":      ("do_action", {"motion_name": "forward", "speed": 70}),
+        "backward":     ("do_action", {"motion_name": "backward", "speed": 70}),
+        "turn left":    ("do_action", {"motion_name": "turn left", "speed": 70}),
+        "turn right":   ("do_action", {"motion_name": "turn right", "speed": 70}),
+        "move left":    ("self:sidestep", {"direction": 1}),    # sideways, facing the same way
+        "move right":   ("self:sidestep", {"direction": -1}),
         "sit":          ("do_action", {"motion_name": "sit", "step": 1, "speed": 50}),
         "stand":        ("do_action", {"motion_name": "stand", "step": 1, "speed": 50}),
         "wave":         ("do_action", {"motion_name": "wave", "step": 1, "speed": 60}),
@@ -27,6 +29,13 @@ class VoiceActiveCrawler(VoiceAssistant):
         "look up":      ("do_action", {"motion_name": "look_up", "step": 1, "speed": 60}),
         "look down":    ("do_action", {"motion_name": "look_down", "step": 1, "speed": 60}),
     }
+
+    # Movement actions take a step count ("forward 4"): the kwarg it sets,
+    # how many steps when the model gives none, and the most it may ask for.
+    STEP_ACTIONS = {"forward": "step", "backward": "step", "turn left": "step", "turn right": "step",
+                    "move left": "steps", "move right": "steps"}
+    DEFAULT_STEPS = 3
+    MAX_STEPS = 8
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_file=None, memory_llm=None, greet_with_vision=False, one_breath=False,
@@ -167,6 +176,14 @@ class VoiceActiveCrawler(VoiceAssistant):
         "izquierda": "turn left", "voltear a la izquierda": "turn left",
         "girar a la derecha": "turn right", "gira a la derecha": "turn right",
         "derecha": "turn right", "voltear a la derecha": "turn right",
+        "moverse a la izquierda": "move left", "muévete a la izquierda": "move left",
+        "muevete a la izquierda": "move left", "hacerse a la izquierda": "move left",
+        "hazte a la izquierda": "move left", "de lado a la izquierda": "move left",
+        "strafe left": "move left", "step left": "move left", "sidestep left": "move left",
+        "moverse a la derecha": "move right", "muévete a la derecha": "move right",
+        "muevete a la derecha": "move right", "hacerse a la derecha": "move right",
+        "hazte a la derecha": "move right", "de lado a la derecha": "move right",
+        "strafe right": "move right", "step right": "move right", "sidestep right": "move right",
         "sentarse": "sit", "siéntate": "sit", "sientate": "sit", "sentado": "sit",
         "pararse": "stand", "párate": "stand", "parate": "stand", "levantarse": "stand",
         "levántate": "stand", "levantate": "stand", "de pie": "stand", "ponerse de pie": "stand",
@@ -197,6 +214,17 @@ class VoiceActiveCrawler(VoiceAssistant):
             return a2
         return a
 
+    _COUNT_RE = re.compile(r"^(.*?)\s*(?:x\s*)?(\d+)\s*(?:x|times|veces|pasos|steps)?$")
+
+    def _parse_action(self, token):
+        """"forward 4" / "forward x4" -> ("forward", 4); a count only matters for STEP_ACTIONS."""
+        m = self._COUNT_RE.match(token.strip().strip('.;:"\'[]()'))
+        name, count = (m.group(1), int(m.group(2))) if m else (token, None)
+        action = self.normalize_action(name)
+        if action not in self.STEP_ACTIONS:
+            return action, 1
+        return action, max(1, min(self.DEFAULT_STEPS if count is None else count, self.MAX_STEPS))
+
     def parse_response(self, text):
         if self._spoken_result is not None and text == self._spoken_result:
             # Streaming think() already spoke this and queued its actions.
@@ -211,11 +239,11 @@ class VoiceActiveCrawler(VoiceAssistant):
         if len(result) > 1:
             actions_str = result[1].strip()
             if actions_str:
-                actions = [self.normalize_action(a) for a in re.split(r'\s*[,;]\s*', actions_str) if a.strip()]
+                actions = [self._parse_action(a) for a in re.split(r'\s*[,;]\s*', actions_str) if a.strip()]
             else:
-                actions = ['stop']
+                actions = [('stop', 1)]
         else:
-            actions = ['stop']
+            actions = [('stop', 1)]
 
         for action in actions:
             self.action_queue.put(action)
@@ -416,6 +444,17 @@ class VoiceActiveCrawler(VoiceAssistant):
         from twerk import party
         party(self.crawler, seconds=seconds, speed=70, volume=90)
 
+    SIDESTEP_MM = 20   # sideways travel per half cycle; 23_trot.py allows up to 30
+
+    def sidestep(self, steps=3, direction=1):
+        # The crawl gaits have no sideways step, so this is a slow trot with only
+        # strafe: one step = both diagonal pairs = 2 half cycles. direction 1 = left.
+        v = self.battery_voltage()
+        if v is not None and v < self.battery_low_volts:
+            print(f"(sin pila para moverse de lado: {v:.2f} V)")
+            return
+        self.crawler.trot(half_cycles=2 * steps, stride=0, strafe=direction * self.SIDESTEP_MM, speed=80)
+
     def trot(self, half_cycles=10):
         # every servo moves on every frame: same current draw worry as the twerk
         v = self.battery_voltage()
@@ -518,13 +557,15 @@ class VoiceActiveCrawler(VoiceAssistant):
     def _action_handler(self):
         while self._action_running:
             try:
-                action = self.action_queue.get(timeout=0.5)
+                action, count = self.action_queue.get(timeout=0.5)
                 self._action_busy.set()
                 try:
                     if action == 'stop':
                         self.crawler.do_action("sit", speed=50)
                     elif action in self.ACTION_MAP:
                         method_name, kwargs = self.ACTION_MAP[action]
+                        if action in self.STEP_ACTIONS:
+                            kwargs = {**kwargs, self.STEP_ACTIONS[action]: count}
                         if method_name.startswith("self:"):
                             getattr(self, method_name[5:])(**kwargs)
                         else:

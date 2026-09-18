@@ -168,7 +168,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 - **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted), with the question in the same breath ("compa, ¿qué hora es?") or on its own to get a "¿Qué pasó, mijo?" first. After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; what he hears in that window that isn't meant for him (people talking to each other, the TV) he ignores, and two of those in a row, silence or a goodbye send him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
-- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota"), both refused on a low battery.
+- **Actions:** the usual moves (forward, turn, sit, wave, look around...), `move left` / `move right` to step sideways without turning, and several steps per move (3 by default, the model can ask for 1–8, e.g. "forward 5"), plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota"), both refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.
 - **Memory:** when a conversation ends, a small model (`gpt-4.1-mini`) reads it and adds, corrects or forgets facts about the family, plus a one-line summary of the chat, in `petronilo_memory.json` (Pi-local, not tracked). Both are in his prompt from the next turn on; nobody has to say "acuérdate".
 
