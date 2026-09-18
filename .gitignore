@@ -7,3 +7,5 @@ test/scene/*
 backups/*
 **secret*
 __pycache__/
+.claude/worktrees/
+.claude/settings.local.json
