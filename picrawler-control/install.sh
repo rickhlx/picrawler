@@ -51,12 +51,39 @@ echo "[Optional] Enabling I2S speaker..."
 cd ~/robot-hat
 sudo bash i2samp.sh 2>/dev/null || echo "   Skipped (can be run manually later)"
 
+# 7. Install the Petronilo voice assistant as a systemd service
+echo "[Service] Installing petronilo.service..."
+PICRAWLER_DIR="$HOME/picrawler"
+# the unit file hardcodes the author's checkout path; point it at this one
+sed "s#/home/ricardo/picrawler#${PICRAWLER_DIR}#g" \
+    "$PICRAWLER_DIR/examples/petronilo.service" \
+    | sudo tee /etc/systemd/system/petronilo.service > /dev/null
+# the service runs as root with HOME=/root, so the Piper/Vosk models must be there
+for models in .piper_models .vosk_models; do
+    if [ -d "$HOME/$models" ]; then
+        sudo cp -r "$HOME/$models" /root/
+    fi
+done
+sudo systemctl daemon-reload
+if [ -f "$PICRAWLER_DIR/examples/secret.py" ]; then
+    sudo systemctl enable --now petronilo
+else
+    # starting without API keys would just crash-loop until they exist
+    sudo systemctl enable petronilo
+    echo "   examples/secret.py not found: service enabled but not started."
+    echo "   Add your API keys, then: sudo systemctl start petronilo"
+fi
+
 echo ""
 echo "============================================"
 echo " Installation complete!"
 echo ""
 echo "Usage:"
 echo "  python3 ~/picrawler-control/scripts/pc.py --help"
+echo ""
+echo "Voice assistant service:"
+echo "  journalctl -u petronilo -f"
+echo "  sudo systemctl restart petronilo"
 echo ""
 echo "Deploy to OpenClaw:"
 echo "  cp -r ~/picrawler-control ~/.npm-global/lib/node_modules/openclaw/skills/"

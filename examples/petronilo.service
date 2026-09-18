@@ -1,6 +1,7 @@
 # Petronilo voice assistant as a systemd service (auto-start on boot, auto-restart).
 #
-# Install (needs sudo):
+# picrawler-control/install.sh installs this with the paths rewritten for the
+# installing user. By hand (needs sudo):
 #   sudo cp ~/picrawler/examples/petronilo.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now petronilo
