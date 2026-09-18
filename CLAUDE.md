@@ -50,6 +50,7 @@ examples/              # Numbered demo scripts (0-20 match the online course; 21
   seeker.py                   # Seeker: scan with the camera, walk up, stop on the ultrasonic; VisionLocator, Sonar
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
   memory.py                   # Memory: facts + chat summaries learned after each conversation
+  petronilo/SOUL.md           # Petronilo's personality, voice, limits and story (OpenClaw-style SOUL.md)
   petronilo_memory.json       # Petronilo's learned memory (Pi-local, git-ignored)
   secret.py                   # API keys (git-ignored)
 picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc.py, install.sh
@@ -95,6 +96,8 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 `forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down`, and the tricks `bow`, `nod`, `shake head`, `shimmy`, `hula`, `bounce`, `spin`, `play dead`, `high five` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `find <object>` is parameterised: `normalize_action` turns it into `find:<object>` and `VoiceActiveCrawler.find` runs `seeker.Seeker` (turn in place until the vision model sees it, walk up, stop at 15 cm on the ultrasonic or when it fills the frame); the outcome is spoken once the round's actions finish, and needs `with_image` plus `locator=` (and `sonar=`). `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; they, `spin` and `bounce` are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
+
+Who he is lives in `examples/petronilo/SOUL.md`, modelled on OpenClaw's SOUL.md: identity, core truths, voice, albures, limits, body (including why he moves little and slowly), what he can do and how he treats memory. The script reads it at start-up and places it inside `INSTRUCTIONS`, which keeps only the operating parts the code depends on: the English `ACTIONS:` rule, the action names and when to use them, `find <object>`, and the reply format. Personality changes go in SOUL.md; a new action goes in `INSTRUCTIONS` and `ACTION_MAP`. Restart after editing either.
 
 Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_file` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
 

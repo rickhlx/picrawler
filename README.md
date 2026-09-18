@@ -166,7 +166,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 ### Petronilo voice assistant
 
-`18_voice_active_crawler_gpt.py` runs "Petronilo", a Spanish-speaking, joke-cracking Mexican-uncle persona:
+`18_voice_active_crawler_gpt.py` runs "Petronilo", a Spanish-speaking, joke-cracking Mexican-uncle persona. His personality lives in [`examples/petronilo/SOUL.md`](examples/petronilo/SOUL.md), OpenClaw-style; edit it and restart to change who he is.
 
 - **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted). After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; silence or a goodbye sends him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
