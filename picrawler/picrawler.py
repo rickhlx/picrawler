@@ -14,12 +14,16 @@ class Picrawler(Robot):
     OFFSET_FILE = os.path.expanduser('~/.config/.picrawler.config')
     PIN_LIST = [9, 10, 11, 3, 4, 5, 0, 1, 2, 6, 7, 8]
 
-    def __init__(self, pin_list=PIN_LIST, init_angles=None, max_dps=None):
+    def __init__(self, pin_list=PIN_LIST, init_angles=None, max_dps=None, speed_limit=100):
         '''
         max_dps: servo speed cap in degrees/s used by robot_hat's servo_move.
         The default (428) matches the stock servos at 4.8 V (60 deg / 0.14 s);
         raise it after fitting faster servos, e.g. 750 for 60 deg / 0.08 s.
+        speed_limit: cap (0-100) on the speed of every move, whatever the
+        caller asks for. Slower moves draw less peak current from the HAT's
+        5 V rail, which the Pi 5 shares (docs/pi-config.md, Power).
         '''
+        self.speed_limit = speed_limit
 
         utils.reset_mcu()
         time.sleep(0.2)
@@ -194,6 +198,7 @@ class Picrawler(Robot):
             self.do_step(body.to_step(frame), speed=80)
 
     def set_angle(self, angles_list, speed=50, israise=False):
+        speed = min(speed, self.speed_limit)
         translate_list = []
         results = []
         for angles in angles_list:
