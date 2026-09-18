@@ -55,6 +55,7 @@ When the user talks to you in natural language ("stand up", "walk forward two st
 | "slight turn / adjust angle" | `stand → do_action('turn left angle', 1, 60) or turn right angle → sit` |
 | "do a push-up" | `stand → do_step(push_up pose arrays) → sit` |
 | "wave" | `stand → mix_step to lift one front leg → sit` |
+| "bow / nod / shake your head / dance / hula / bounce / spin / play dead / high five" | `trick('bow')` etc. → sit (see Tricks) |
 | "is there something ahead / measure distance" | `exec sensor distance read, return the value to user` |
 | "make a sound / speak" | `music.sound_play(path) or music.music_play(path)` |
 | "take a photo / take a picture" | `Vilib.take_photo() → tell user where it saved` |
@@ -81,6 +82,23 @@ finally:
 ```
 
 Available action names: `forward`, `backward`, `turn left`, `turn right`, `turn left angle`, `turn right angle`
+
+### Tricks (EXEC THIS)
+
+Tricks stand up and return to the stand pose on their own; sit afterwards.
+
+```python
+from picrawler import Picrawler
+from time import sleep
+c = Picrawler()
+try:
+    c.trick('play dead')   # <-- swap trick name here
+finally:
+    c.do_step('sit', 40)
+    sleep(1.0)
+```
+
+Available tricks: `bow`, `nod`, `shake head`, `shimmy` (dance), `hula`, `bounce`, `spin`, `play dead`, `high five`
 
 ### Stand or Sit Only (use when no movement follows)
 
@@ -169,6 +187,7 @@ See `references/api.md` for all available methods:
 - `do_single_leg(leg, coodinate, speed)` — move one leg
 - `mix_step(base, leg, coodinate)` — create custom poses
 - `add_action(name, steps)` — register custom multi-step action
+- `trick(name)` — crowd-pleaser tricks (bow, shimmy, play dead, ...)
 - `move_list` keys: forward, backward, turn_left, turn_right, turn_left_angle, turn_right_angle, push_up, wave, look_left, look_right, look_up, look_down
 - `Vilib` gesture/traffic_sign/QR code detection
 - `Music` TTS and background music
