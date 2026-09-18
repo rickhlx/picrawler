@@ -79,6 +79,15 @@ vcgencmd get_throttled                                    # 0x50000 = under-volt
   gestures he wasn't asked for. The Pi browned out while he wiggled and talked,
   when the amp and the servos peak together.
 
+- The wiggle tricks are small and slow for every caller, including
+  `24_tricks.py` and `pc.py trick`, which don't set `speed_limit`. A shimmy
+  at speed 90 reverses all twelve servos eight times and browned the Pi out.
+  It's now three wiggles at speed 50 with less swing and an 80 ms pause at
+  each reversal. `shake head`, `nod` and `hula` are slowed the same way.
+  The voice action refuses `shimmy` and `hula` below the battery cutoff.
+  Stepping into and out of the trick/trot stance (`neutral_stance`) runs
+  at 60, down from 80.
+
 These make brownouts less likely but don't remove the cause.
 
 ### On the Pi (needs sudo)

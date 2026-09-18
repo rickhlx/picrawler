@@ -192,10 +192,10 @@ class Picrawler(Robot):
             self.do_action('stand', speed=60)
         start = [body.to_body(i, c) for i, c in enumerate(self.current_step_all_leg_value())]
         for frame in gait.reposition(start, gait.NEUTRAL):
-            self.do_step(body.to_step(frame), speed=80)
+            self.do_step(body.to_step(frame), speed=60)
         yield
         for frame in gait.reposition(gait.NEUTRAL, start):
-            self.do_step(body.to_step(frame), speed=80)
+            self.do_step(body.to_step(frame), speed=60)
 
     def set_angle(self, angles_list, speed=50, israise=False):
         speed = min(speed, self.speed_limit)
