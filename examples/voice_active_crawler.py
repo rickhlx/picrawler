@@ -6,6 +6,7 @@ import threading
 import json
 import os
 import re
+import sys
 
 
 class VoiceActiveCrawler(VoiceAssistant):
@@ -60,6 +61,12 @@ class VoiceActiveCrawler(VoiceAssistant):
         except Exception as e:
             self._handle_init_error(e)
             raise
+        # LLM.add_message trims history from the front once it passes max_messages,
+        # which drops the system prompt. Trim it ourselves instead and keep the
+        # system prompt pinned at index 0 (see _refresh_system_prompt).
+        self._system_msg = self.llm.messages[0]
+        self._history_limit = self.llm.max_messages
+        self.llm.max_messages = sys.maxsize
         self._init_crawler()
         if stt is not None:
             # Replace the library's STT (e.g. with HybridSTT from petronilo_voice)
@@ -118,7 +125,12 @@ class VoiceActiveCrawler(VoiceAssistant):
         self._maybe_remember(text)
 
     def before_think(self, text):
-        pass
+        self._refresh_system_prompt()
+
+    def _refresh_system_prompt(self):
+        msgs = self.llm.messages
+        history = [m for m in msgs if m is not self._system_msg][-(self._history_limit - 1):]
+        msgs[:] = [self._system_msg] + history
 
     # Spanish (and a few loose English) names the LLM may emit -> ACTION_MAP keys
     ACTION_ALIASES = {
