@@ -53,7 +53,6 @@ When the user talks to you in natural language ("stand up", "walk forward two st
 | "turn left" | `stand → do_action('turn left', 1, 60) → sit` |
 | "turn right" | `stand → do_action('turn right', 1, 60) → sit` |
 | "slight turn / adjust angle" | `stand → do_action('turn left angle', 1, 60) or turn right angle → sit` |
-| "dance" | `stand → do_action('dance', 2, 80) → sit` |
 | "do a push-up" | `stand → do_step(push_up pose arrays) → sit` |
 | "wave" | `stand → mix_step to lift one front leg → sit` |
 | "is there something ahead / measure distance" | `exec sensor distance read, return the value to user` |
@@ -170,7 +169,7 @@ See `references/api.md` for all available methods:
 - `do_single_leg(leg, coodinate, speed)` — move one leg
 - `mix_step(base, leg, coodinate)` — create custom poses
 - `add_action(name, steps)` — register custom multi-step action
-- `move_list` keys: forward, backward, turn_left, turn_right, turn_left_angle, turn_right_angle, push_up, wave, look_left, look_right, look_up, look_down, dance
+- `move_list` keys: forward, backward, turn_left, turn_right, turn_left_angle, turn_right_angle, push_up, wave, look_left, look_right, look_up, look_down
 - `Vilib` gesture/traffic_sign/QR code detection
 - `Music` TTS and background music
 

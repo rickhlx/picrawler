@@ -633,32 +633,6 @@ class Picrawler(Robot):
         
         def to_rad(self, deg):
             return deg * math.pi / 180
-        
-        @property
-        def dance(self):
-            _dance = []
-            if not self.is_sit():
-                _dance += self.sit
-            _dance += [
-                [[self.X_DEFAULT, self.Y_DEFAULT, self.z_current],[self.X_DEFAULT, self.Y_DEFAULT, self.z_current],[self.X_DEFAULT, self.Y_DEFAULT, self.z_current],[self.X_DEFAULT, self.Y_DEFAULT, self.z_current]],
-            ]
-            for i in range(0, 360, 5):
-                _dance.append(self.move_body_absolute(40 * math.sin(self.to_rad(i)), 40 * math.cos(self.to_rad(i)), 0))
-            for i in range(360, 0, -5):
-                _dance.append(self.move_body_absolute(40 * math.sin(self.to_rad(i)), 40 * math.cos(self.to_rad(i)), 0))
-            _dance.append(self.rotate_body_absolute_x(-20))
-            _dance.append(self.rotate_body_absolute_x(20))
-            _dance.append(self.move_body_absolute(0, 0, 0))
-            _dance.append(self.rotate_body_absolute_y(-20))
-            _dance.append(self.rotate_body_absolute_y(20))
-            for j in range(0, 3):
-                for i in range(0, 360, 3):
-                    _dance.append(self.move_body_absolute(40 * math.sin(self.to_rad(i)), 40 * math.cos(self.to_rad(i)), (i / 360.0 + j) * 15))
-            for j in range(3, 0, -1):
-                for i in range(0, 360, 3):
-                    _dance.append(self.move_body_absolute(40 * math.sin(self.to_rad(i)), 40 * math.cos(self.to_rad(i)), ((360 - i) / 360.0 + j - 1) * 15))
-            _dance.append(self.move_body_absolute(0, 0, 0))
-            return _dance
 
 
 

@@ -62,7 +62,7 @@ INSTRUCTIONS = """
 - 铝合金打造的身体
 
 ## 你可以执行的动作：
-["forward", "backward", "turn left", "turn right", "sit", "stand", "wave", "push up", "dance", "look left", "look right", "look up", "look down"]
+["forward", "backward", "turn left", "turn right", "sit", "stand", "wave", "push up", "look left", "look right", "look up", "look down"]
 
 ## 响应要求
 ### 格式
