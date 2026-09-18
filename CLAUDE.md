@@ -26,6 +26,10 @@ No test suite, linter, or type-checker exists in this repo. Dependencies: `robot
 
 This repo is a fork of `sunfounder/picrawler` (remote `origin` = `rickhlx/picrawler`). The robot-hat fork mocks GPIO/I2C/audio on non-Pi hosts, so `import robot_hat` / `import picrawler` work on macOS for development (`ROBOT_HAT_MOCK=1` forces the mock on a Pi).
 
+## Git workflow
+
+This repo overrides the global branch/PR rules: commit directly to `main` and push to `origin/main`, no feature branches or PRs. Background jobs skip the worktree and work in the main checkout. Conventional Commits still apply, and the ask-first rules for force-push, rewriting pushed history and `reset --hard` still hold.
+
 ## Architecture
 
 ```
