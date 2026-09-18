@@ -26,7 +26,12 @@ EXCLUDES := \
 
 RSYNC := rsync -az --delete --itemize-changes $(addprefix --exclude ,$(EXCLUDES))
 
-.PHONY: sync sync-dry restart deploy logs
+# Servo offsets written by examples/0_calibration.py. The examples run under
+# sudo, so robot_hat keeps them in root's home.
+CALI_PI   := /root/.config/.picrawler.config
+CALI_REPO := calibration/picrawler.config
+
+.PHONY: sync sync-dry restart deploy logs cali-pull cali-push
 
 sync: ## Push the working tree to the Pi
 	$(RSYNC) ./ $(PI_HOST):$(PI_DIR)/
@@ -41,3 +46,11 @@ deploy: sync restart ## Sync, then restart
 
 logs: ## Follow the service logs
 	ssh -t $(PI_HOST) journalctl -u $(SERVICE) -f
+
+cali-pull: ## Copy the Pi's servo calibration into the repo (commit it afterwards)
+	ssh $(PI_HOST) sudo cat $(CALI_PI) > $(CALI_REPO).tmp
+	grep -q picrawler_servo_offset_list $(CALI_REPO).tmp
+	mv $(CALI_REPO).tmp $(CALI_REPO)
+
+cali-push: ## Overwrite the Pi's servo calibration with the repo copy
+	ssh $(PI_HOST) 'sudo mkdir -p $(dir $(CALI_PI)) && sudo tee $(CALI_PI) > /dev/null' < $(CALI_REPO)

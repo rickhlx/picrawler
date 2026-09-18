@@ -8,11 +8,9 @@ Re-run the commands in [Reproducing](#reproducing) to refresh it.
 
 Ordered by how much they affect the robot.
 
-1. **No servo calibration is saved.** `/root/.config/.picrawler.config` (the
-   examples run under `sudo`, so `~` is `/root`) holds only the robot-hat
-   header, no offsets. Either `0_calibration.py` was never saved or the file
-   was reset. Gaits run on raw servo zeros. Run `sudo python3
-   examples/0_calibration.py` and save.
+1. ~~**No servo calibration is saved.**~~ Resolved 2026-09-18: calibrated
+   with `0_calibration.py` and backed up to `calibration/picrawler.config`
+   (`make cali-pull`); `picrawler-control/install.sh` restores it.
 2. **Under-voltage under load.** The kernel logged `Undervoltage detected!` at
    11:11:13, recovered 2 s later, and `vcgencmd get_throttled` reports
    `0x50000` (under-voltage and throttling have occurred since boot, neither
@@ -150,7 +148,8 @@ robot-hat is not editable, so changes in `~/robot-hat` need a reinstall
 (`sudo pip3 install ~/robot-hat --break-system-packages`) to take effect.
 
 Pi-local state in `~/picrawler/examples`: `secret.py` (API keys) and
-`petronilo_memory.json`. Calibration lives in `/root/.config/.picrawler.config`.
+`petronilo_memory.json`. Calibration lives in `/root/.config/.picrawler.config`,
+with a copy in the repo at `calibration/picrawler.config`.
 
 ## Services and access
 
