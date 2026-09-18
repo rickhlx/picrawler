@@ -1,5 +1,7 @@
 from robot_hat import Robot, utils
 
+from . import body, gait
+
 import os
 import time
 import math
@@ -147,6 +149,26 @@ class Picrawler(Robot):
                         self.do_step(_step, speed=speed) 
             except KeyError:
                 print("No such action")
+
+    def trot(self, half_cycles=8, stride=30, strafe=0, turn=0, speed=100, lift=15):
+        '''
+        Trot (diagonal legs swing together) for half_cycles half cycles,
+        starting and ending in the stand pose. stride/strafe are mm and turn
+        is degrees per half cycle; see gait.Trot.
+        '''
+        if not self.move_list.is_stand():
+            self.do_action('stand', speed=60)
+        start = [body.to_body(i, c) for i, c in enumerate(self.current_step_all_leg_value())]
+        for frame in gait.reposition(start, gait.NEUTRAL):
+            self.do_step(body.to_step(frame), speed=80)
+        trot = gait.Trot(lift=lift)
+        for _ in range(half_cycles):
+            for frame in trot.half_cycle(stride, strafe, turn):
+                self.do_step(body.to_step(frame), speed=speed)
+        for frame in trot.settle():
+            self.do_step(body.to_step(frame), speed=speed)
+        for frame in gait.reposition(gait.NEUTRAL, start):
+            self.do_step(body.to_step(frame), speed=80)
 
     def set_angle(self, angles_list, speed=50, israise=False):
         translate_list = []
