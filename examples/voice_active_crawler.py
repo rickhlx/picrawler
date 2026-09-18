@@ -26,6 +26,16 @@ class VoiceActiveCrawler(VoiceAssistant):
         "look right":   ("do_action", {"motion_name": "look_right", "step": 1, "speed": 60}),
         "look up":      ("do_action", {"motion_name": "look_up", "step": 1, "speed": 60}),
         "look down":    ("do_action", {"motion_name": "look_down", "step": 1, "speed": 60}),
+        # crowd-pleasers from picrawler/tricks.py
+        "bow":          ("self:trick", {"name": "bow"}),
+        "nod":          ("self:trick", {"name": "nod"}),
+        "shake head":   ("self:trick", {"name": "shake head"}),
+        "shimmy":       ("self:trick", {"name": "shimmy"}),
+        "hula":         ("self:trick", {"name": "hula"}),
+        "bounce":       ("self:trick", {"name": "bounce"}),
+        "spin":         ("self:trick", {"name": "spin"}),
+        "play dead":    ("self:trick", {"name": "play dead"}),
+        "high five":    ("self:trick", {"name": "high five"}),
     }
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
@@ -161,6 +171,17 @@ class VoiceActiveCrawler(VoiceAssistant):
         "mirar a la derecha": "look right", "mira a la derecha": "look right", "ver a la derecha": "look right",
         "mirar arriba": "look up", "mira arriba": "look up", "mirar hacia arriba": "look up",
         "mirar abajo": "look down", "mira abajo": "look down", "mirar hacia abajo": "look down",
+        "reverencia": "bow", "hacer una reverencia": "bow", "inclinarse": "bow", "caravana": "bow",
+        "asentir": "nod", "asiente": "nod", "decir que sí": "nod", "decir que si": "nod",
+        "negar": "shake head", "niega": "shake head", "decir que no": "shake head",
+        "menear": "shimmy", "menearse": "shimmy", "menéate": "shimmy", "meneate": "shimmy",
+        "bailar": "shimmy", "baila": "shimmy", "dance": "shimmy",
+        "hula hula": "hula", "hula-hula": "hula", "círculos": "hula", "circulos": "hula",
+        "brincar": "bounce", "brinca": "bounce", "saltar": "bounce", "salta": "bounce", "jump": "bounce",
+        "girar": "spin", "gira": "spin", "dar una vuelta": "spin", "da una vuelta": "spin", "vuelta": "spin",
+        "hacerse el muerto": "play dead", "hazte el muerto": "play dead", "muerto": "play dead",
+        "chócala": "high five", "chocala": "high five", "choca esos cinco": "high five",
+        "dame cinco": "high five", "high-five": "high five", "highfive": "high five",
         "parar": "stop", "detenerse": "stop", "detente": "stop", "alto": "stop", "quieto": "stop",
         "ninguna": "stop", "ninguno": "stop", "nada": "stop", "none": "stop",
     }
@@ -373,6 +394,17 @@ class VoiceActiveCrawler(VoiceAssistant):
             print(f"(sin pila para trotar: {v:.2f} V)")
             return
         self.crawler.trot(half_cycles=half_cycles, stride=30)
+
+    # every servo moves on every frame: same current draw worry as the twerk
+    HEAVY_TRICKS = ("spin", "bounce")
+
+    def trick(self, name):
+        if name in self.HEAVY_TRICKS:
+            v = self.battery_voltage()
+            if v is not None and v < self.battery_low_volts:
+                print(f"(sin pila para {name}: {v:.2f} V)")
+                return
+        self.crawler.trick(name)
 
     # ── camera: only send a frame when the question is visual ────────
 
