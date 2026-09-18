@@ -233,7 +233,7 @@ robot-hat is not editable, so changes in `~/robot-hat` need a reinstall
 (`sudo pip3 install ~/robot-hat --break-system-packages`) to take effect.
 
 Pi-local state in `~/picrawler/examples`: `secret.py` (API keys) and
-`petronilo_memory.json`. Calibration lives in `/root/.config/.picrawler.config`,
+`petronilo_memory/` (Markdown memory; the old `petronilo_memory.json` is migrated on first start). Calibration lives in `/root/.config/.picrawler.config`,
 with a copy in the repo at `calibration/picrawler.config`.
 
 ## Services and access

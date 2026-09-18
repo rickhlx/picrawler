@@ -66,8 +66,10 @@ FAREWELL = "Órale, ahí nos vemos, mijo. Aquí ando si me necesitas."
 # Speak sentence-by-sentence while the answer is still being generated (much less dead air)
 STREAM_SPEECH = True
 # Long-term memory: after each conversation a small model picks out facts worth keeping
-# (names, birthdays, likes, running jokes) and a one-line summary, saved to MEMORY_FILE.
-MEMORY_FILE = "petronilo_memory.json"
+# (names, birthdays, likes, running jokes) and a one-line summary. Saved as Markdown in MEMORY_DIR,
+# laid out like OpenClaw's memory: USER.md (the family), MEMORY.md (the rest), memory/<date>.md
+# (daily notes). Next to this script, whatever directory he is started from.
+MEMORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_memory")
 memory_llm = LLM(api_key=API_KEY, model="gpt-4.1-mini")
 # Greet whoever is on camera when woken (adds ~3 s before he listens; replaces ANSWER_ON_WAKE)
 GREET_WITH_VISION = False
@@ -150,7 +152,7 @@ vad = VoiceActiveCrawler(
     end_phrases=END_PHRASES,
     farewell=FAREWELL,
     stream_speech=STREAM_SPEECH,
-    memory_file=MEMORY_FILE,
+    memory_dir=MEMORY_DIR,
     memory_llm=memory_llm,
     greet_with_vision=GREET_WITH_VISION,
     battery_low_volts=BATTERY_LOW_VOLTS,
