@@ -1,6 +1,6 @@
 from robot_hat import Robot, utils
 
-from . import body, gait
+from . import body, gait, tricks
 
 import os
 import time
@@ -164,6 +164,18 @@ class Picrawler(Robot):
                     self.do_step(body.to_step(frame), speed=speed)
             for frame in trot.settle():
                 self.do_step(body.to_step(frame), speed=speed)
+
+    def trick(self, name):
+        '''
+        Run a crowd-pleaser from tricks.TRICKS ("bow", "shimmy", "play dead",
+        ...), starting and ending in the stand pose.
+        '''
+        moves = tricks.TRICKS[name.replace("_", " ")]()
+        with self.neutral_stance():
+            for move in moves:
+                self.do_step(body.to_step(move.feet), speed=move.speed)
+                if move.hold:
+                    time.sleep(move.hold)
 
     @contextmanager
     def neutral_stance(self):
