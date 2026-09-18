@@ -138,6 +138,9 @@ sudo python3 ~/picrawler/examples/1_move.py
 | 18 | `18_voice_active_crawler_gpt.py` | Voice AI with OpenAI — the Spanish "Petronilo" assistant |
 | 19 | `19_voice_active_crawler_doubao.py` | Voice AI with Doubao (Chinese, wake word 旺财) |
 | 20 | `20_voice_active_crawler_ollama.py` | Voice AI with Ollama (local, Spanish) |
+| 21 | `21_imu_check.py` | Print roll/pitch from an MPU6050 to check its mounting (`--axes` to remap) |
+| 22 | `22_self_level.py` | Stand and hold the body level on a tilting surface (MPU6050) |
+| 23 | `23_trot.py` | Keyboard-driven trot gait, optionally self-leveling (`--level`, `--max-dps`) |
 | | `twerk.py` | Reggaeton twerk dance to a synthesized dembow beat |
 | | `servo_zeroing.py` | Servo zeroing utility |
 

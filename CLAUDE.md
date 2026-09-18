@@ -32,12 +32,16 @@ This repo is a fork of `sunfounder/picrawler` (remote `origin` = `rickhlx/picraw
 picrawler/
   __init__.py          # Exports Picrawler class + __version__
   picrawler.py         # Core library (~650 lines)
+  body.py              # Leg-local <-> body-frame geometry, body roll/pitch
+  gait.py              # Trot generator (diagonal pairs) + reposition helper
+  imu.py               # MPU6050 driver + complementary-filter Attitude
+  balance.py           # Leveler: integral roll/pitch body leveling
   llm.py               # Re-exports LLM classes from robot_hat.llm
   voice_assistant.py   # Re-exports VoiceAssistant from robot_hat.voice_assistant
   stt.py               # Re-exports STT from robot_hat.stt
   tts.py               # Re-exports TTS from robot_hat.tts
   version.py           # Version string (2.1.4)
-examples/              # Numbered demo scripts (0-20, matching online course)
+examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot)
   voice_active_crawler.py     # VoiceActiveCrawler class (base, not numbered)
   petronilo_voice.py          # PetroniloTTS (OpenAI TTS + Piper fallback), HybridSTT, SpeechPipeline
   spanish_tts.py              # Mexican Spanish Piper model name + EspeakES
@@ -61,7 +65,11 @@ picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc
   - `@check_stand` — Auto-prepends `stand` frames if the robot isn't standing.
   - `@normal_action(mode)` — Swaps leg order based on `stand_position` toggle (0 or 1), alternating the supporting vs. lifting legs each cycle.
 
-- Leg ordering in coordinate lists: `[leg0, leg1, leg2, leg3]`.
+- Leg ordering in coordinate lists: `[leg0, leg1, leg2, leg3]` = right front, left front, left rear, right rear. Leg-local frame: x sideways out of the body, y along the body away from its centre, z height (negative down).
+
+- `Picrawler(max_dps=...)` overrides robot_hat's servo speed cap (428 deg/s, stock servos) for faster replacement servos.
+
+**IMU, leveling and trot** (`body.py`, `imu.py`, `balance.py`, `gait.py`) work in a body frame (REP-103: x forward, y left, z up; roll + lifts the left side, pitch + drops the nose) and produce `do_step` frames via `body.to_step(points, roll, pitch)`. `imu.MPU6050` talks through `robot_hat.I2C` at 0x68; `axes=` remaps a rotated mounting. `balance.Leveler` is an integral controller with a disc clamp: standing stays inside the shoulder servo's -10 deg limit up to ~11 deg of correction, trotting with the default 15 mm lift up to ~6 deg. `gait.Trot` is stateful (`half_cycle(stride, strafe, turn)`, `settle()`), so commands can change every half cycle. The servos have no feedback, so this is quasi-static leveling, not dynamic balance.
 
 ## Key physical constants
 
@@ -118,6 +126,11 @@ sudo python3 examples/17_online_llm_test.py               # Text chat, OpenAI gp
 sudo python3 examples/18_voice_active_crawler_gpt.py      # Petronilo, Spanish, OpenAI
 sudo python3 examples/19_voice_active_crawler_doubao.py   # Doubao (Chinese)
 sudo python3 examples/20_voice_active_crawler_ollama.py   # Local Ollama, Spanish
+
+# IMU / leveling / trot (21-23); need an MPU6050 on the HAT I2C header (23 only with --level)
+sudo python3 examples/21_imu_check.py --axes x,y,z       # Verify IMU signs
+sudo python3 examples/22_self_level.py                    # Self-leveling stand
+sudo python3 examples/23_trot.py --level                  # Keyboard trot
 
 # Not numbered
 sudo python3 examples/twerk.py --bpm 95 --volume 40 --speed 70   # Reggaeton twerk
