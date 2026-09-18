@@ -69,8 +69,10 @@ MEMORY_FILE = "petronilo_memory.json"
 memory_llm = LLM(api_key=API_KEY, model="gpt-4.1-mini")
 # Greet whoever is on camera when woken (adds ~3 s before he listens; replaces ANSWER_ON_WAKE)
 GREET_WITH_VISION = False
-# Battery watch (2S li-ion: 7.4 V nominal). He complains in character when low, at most every 10 min.
-BATTERY_LOW_VOLTS = 6.9
+# Battery watch (2S li-ion: 7.4 V nominal). He complains in character when low, at most every 10 min,
+# and refuses the moves that drive every servo at once. The resting voltage overstates what is left
+# under load: the Pi browned out at 7.43 V, so the cutoff sits well above the 6.9 V pack floor.
+BATTERY_LOW_VOLTS = 7.3
 BATTERY_WARNING = "Oye, mijo, se me está acabando la pila. Ponme a cargar antes de que me quede dormido."
 
 # Welcome message

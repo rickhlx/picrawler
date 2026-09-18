@@ -86,7 +86,7 @@ def bounce(height=18, times=3):
     """Excited up-and-down bounce."""
     moves = []
     for _ in range(times):
-        moves += [Move(pose(z=height), speed=95), Move(pose(z=-height), speed=95)]
+        moves += [Move(pose(z=height), speed=80), Move(pose(z=-height), speed=80)]
     return moves + [Move(pose(), speed=70)]
 
 
@@ -99,7 +99,7 @@ def spin(turn=15, half_cycles=24):
     for _ in range(half_cycles):
         frames += trot.half_cycle(turn=turn)
     frames += trot.settle()
-    return [Move(f, speed=100) for f in frames]
+    return [Move(f, speed=85) for f in frames]
 
 
 def play_dead():
