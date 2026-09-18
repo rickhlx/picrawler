@@ -83,11 +83,14 @@ sudo pip3 install numpy requests --break-system-packages
 
 ```bash
 cd ~/robot-hat && git pull && sudo python3 install.py
-cd ~/picrawler && git pull
-sudo pip3 uninstall picrawler --break-system-packages -y
-sudo pip3 install ~/picrawler --break-system-packages
 python3 -c "import robot_hat, picrawler; print(robot_hat.__version__, picrawler.__version__)"
-sudo systemctl restart petronilo   # only if the Petronilo service is installed
+```
+
+`~/picrawler` is updated from a checkout on your computer, not with `git pull` on the Pi: `make deploy` rsyncs the working tree over and restarts Petronilo, and `make deployed` shows which commit the Pi is running. It needs the editable install once, so synced library changes take effect:
+
+```bash
+sudo pip3 uninstall picrawler --break-system-packages -y
+sudo pip3 install -e ~/picrawler --break-system-packages --no-deps
 ```
 
 If `~/robot-hat` or `~/picrawler` was cloned from SunFounder, point it at the fork before pulling. `reset --hard` discards uncommitted edits in that checkout (`examples/secret.py` is git-ignored and kept):

@@ -1,5 +1,7 @@
-# Push the working tree to the Pi for hardware iteration. Not a deploy:
-# commit and `git pull --ff-only` on the Pi once the change is settled.
+# Deploy by rsync: the Pi's ~/picrawler is a copy of this working tree, never
+# pulled with git. `make deploy` syncs and restarts the service; each sync
+# leaves a DEPLOYED stamp on the Pi (commit, dirty flag, branch, time) since
+# the Pi's own git history no longer says what is running.
 #
 # The Pi needs an editable install, or synced library changes are ignored:
 #   sudo pip3 install -e ~/picrawler --break-system-packages --no-deps
@@ -23,7 +25,8 @@ EXCLUDES := \
 	examples/img_input.jpeg \
 	examples/musics/reggaeton_dembow.wav \
 	'.lgd-nfy*' \
-	.DS_Store
+	.DS_Store \
+	DEPLOYED
 
 RSYNC := rsync -az --delete --itemize-changes $(addprefix --exclude ,$(EXCLUDES))
 
@@ -32,16 +35,22 @@ RSYNC := rsync -az --delete --itemize-changes $(addprefix --exclude ,$(EXCLUDES)
 CALI_PI   := /root/.config/.picrawler.config
 CALI_REPO := calibration/picrawler.config
 
-.PHONY: sync sync-dry restart deploy logs cali-pull cali-push
+.PHONY: sync sync-dry deployed restart deploy logs cali-pull cali-push
 
-sync: ## Push the working tree to the Pi
+sync: ## Push the working tree to the Pi and stamp what was deployed
 	$(RSYNC) ./ $(PI_HOST):$(PI_DIR)/
+	printf '%s %s %s\n' "$$(git describe --always --dirty)" "$$(git branch --show-current)" "$$(date -u +%FT%TZ)" \
+		| ssh $(PI_HOST) 'cat > $(PI_DIR)/DEPLOYED'
+
+deployed: ## Show what the Pi is running
+	ssh $(PI_HOST) cat $(PI_DIR)/DEPLOYED
 
 sync-dry: ## Show what sync would change
 	$(RSYNC) --dry-run ./ $(PI_HOST):$(PI_DIR)/
 
+# -t gives sudo a terminal to ask for the password on
 restart: ## Restart the voice assistant service
-	ssh $(PI_HOST) sudo systemctl restart $(SERVICE)
+	ssh -t $(PI_HOST) sudo systemctl restart $(SERVICE)
 
 deploy: sync restart ## Sync, then restart
 
