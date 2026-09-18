@@ -172,7 +172,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
 - **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota") and the [tricks](#tricks) below. He nods and shakes his head along with what he says, bows for applause, and plays dead when you say "bang". Twerk, trot, spin and bounce are refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.
-- **Memory:** when a conversation ends, a small model (`gpt-4.1-mini`) reads it and adds, corrects or forgets facts about the family, plus a one-line summary of the chat, in `petronilo_memory.json` (Pi-local, not tracked). Both are in his prompt from the next turn on; nobody has to say "acuérdate".
+- **Memory:** when a conversation ends, a small model (`gpt-4.1-mini`) reads it and adds, corrects or forgets facts about the family, plus a one-line summary of the chat, as Markdown in `examples/petronilo_memory/`, laid out like OpenClaw's memory: `USER.md` for the family, `MEMORY.md` for plans and running jokes, and a daily note per day under `memory/` (Pi-local, not tracked, editable by hand). Both are in his prompt from the next turn on; nobody has to say "acuérdate".
 
 For a fully offline setup, switch to the Piper TTS / Vosk STT lines commented in the script, or use `20_voice_active_crawler_ollama.py`.
 

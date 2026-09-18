@@ -20,7 +20,7 @@ For development iteration, the Pi uses an editable install (one-time) so the che
 sudo pip3 uninstall picrawler --break -y && sudo pip3 install -e . --break --no-deps --no-build-isolation
 ```
 
-Then push the Mac working tree to it with `make sync` (`make sync-dry` to preview, `make deploy` to sync and restart the `petronilo` service, `make logs` to follow it; host is the `picrawler` SSH alias, override with `PI_HOST=`). It excludes Pi-local state (`secret.py`, `petronilo_memory.json`, generated media, lgpio pipes) so `--delete` never removes it. Once a change is committed, `git pull --ff-only` on the Pi instead.
+Then push the Mac working tree to it with `make sync` (`make sync-dry` to preview, `make deploy` to sync and restart the `petronilo` service, `make logs` to follow it; host is the `picrawler` SSH alias, override with `PI_HOST=`). It excludes Pi-local state (`secret.py`, `petronilo_memory/`, generated media, lgpio pipes) so `--delete` never removes it. Once a change is committed, `git pull --ff-only` on the Pi instead.
 
 No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`.
 
@@ -50,7 +50,7 @@ examples/              # Numbered demo scripts (0-20 match the online course; 21
   seeker.py                   # Seeker: scan with the camera, walk up, stop on the ultrasonic; VisionLocator, Sonar
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
   memory.py                   # Memory: facts + chat summaries learned after each conversation
-  petronilo_memory.json       # Petronilo's learned memory (Pi-local, git-ignored)
+  petronilo_memory/           # Petronilo's learned memory, OpenClaw-style Markdown (Pi-local, git-ignored)
   secret.py                   # API keys (git-ignored)
 picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc.py, install.sh
 ```
@@ -96,7 +96,7 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 
-Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_file` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
+Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_dir` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn). The memory is a Markdown workspace laid out like OpenClaw's: `USER.md` (the family), `MEMORY.md` (plans, running jokes, requests) and `memory/YYYY-MM-DD.md` daily notes with one line per conversation; the prompt gets both files plus the two most recent daily notes. Facts are the `- ` bullets, so the files can be edited by hand with the service stopped. An old `petronilo_memory.json` is migrated on first start and renamed `.migrated`, `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
 
 ### LLM backends
 
