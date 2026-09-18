@@ -138,6 +138,9 @@ sudo python3 ~/picrawler/examples/1_move.py
 | 18 | `18_voice_active_crawler_gpt.py` | Voice AI with OpenAI — the Spanish "Petronilo" assistant |
 | 19 | `19_voice_active_crawler_doubao.py` | Voice AI with Doubao (Chinese, wake word 旺财) |
 | 20 | `20_voice_active_crawler_ollama.py` | Voice AI with Ollama (local, Spanish) |
+| 21 | `21_imu_check.py` | Print roll/pitch from an MPU6050 to check its mounting (`--axes` to remap) |
+| 22 | `22_self_level.py` | Stand and hold the body level on a tilting surface (MPU6050) |
+| 23 | `23_trot.py` | Keyboard-driven trot gait, optionally self-leveling (`--level`, `--max-dps`) |
 | | `twerk.py` | Reggaeton twerk dance to a synthesized dembow beat |
 | | `servo_zeroing.py` | Servo zeroing utility |
 
@@ -164,7 +167,7 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 - **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted). After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; silence or a goodbye sends him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
-- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk`, which is refused on a low battery.
+- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota"), both refused on a low battery.
 - **Camera:** frames are sent to the model only for visual questions.
 - **Memory:** say "acuérdate que ..." and the fact is saved to `petronilo_memory.json` and loaded into the prompt on the next start.
 

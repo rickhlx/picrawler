@@ -1,5 +1,7 @@
 from robot_hat import Robot, utils
 
+from . import body, gait
+
 import os
 import time
 import math
@@ -11,12 +13,19 @@ class Picrawler(Robot):
     OFFSET_FILE = os.path.expanduser('~/.config/.picrawler.config')
     PIN_LIST = [9, 10, 11, 3, 4, 5, 0, 1, 2, 6, 7, 8]
 
-    def __init__(self, pin_list=PIN_LIST, init_angles=None):  
+    def __init__(self, pin_list=PIN_LIST, init_angles=None, max_dps=None):
+        '''
+        max_dps: servo speed cap in degrees/s used by robot_hat's servo_move.
+        The default (428) matches the stock servos at 4.8 V (60 deg / 0.14 s);
+        raise it after fitting faster servos, e.g. 750 for 60 deg / 0.08 s.
+        '''
 
         utils.reset_mcu()
         time.sleep(0.2)
 
         super().__init__(pin_list, db=self.OFFSET_FILE, name='picrawler', init_angles=init_angles)
+        if max_dps is not None:
+            self.max_dps = max_dps
 
         self.move_list = self.MoveList()
         self.move_list_add = {
@@ -140,6 +149,26 @@ class Picrawler(Robot):
                         self.do_step(_step, speed=speed) 
             except KeyError:
                 print("No such action")
+
+    def trot(self, half_cycles=8, stride=30, strafe=0, turn=0, speed=100, lift=15):
+        '''
+        Trot (diagonal legs swing together) for half_cycles half cycles,
+        starting and ending in the stand pose. stride/strafe are mm and turn
+        is degrees per half cycle; see gait.Trot.
+        '''
+        if not self.move_list.is_stand():
+            self.do_action('stand', speed=60)
+        start = [body.to_body(i, c) for i, c in enumerate(self.current_step_all_leg_value())]
+        for frame in gait.reposition(start, gait.NEUTRAL):
+            self.do_step(body.to_step(frame), speed=80)
+        trot = gait.Trot(lift=lift)
+        for _ in range(half_cycles):
+            for frame in trot.half_cycle(stride, strafe, turn):
+                self.do_step(body.to_step(frame), speed=speed)
+        for frame in trot.settle():
+            self.do_step(body.to_step(frame), speed=speed)
+        for frame in gait.reposition(gait.NEUTRAL, start):
+            self.do_step(body.to_step(frame), speed=80)
 
     def set_angle(self, angles_list, speed=50, israise=False):
         translate_list = []

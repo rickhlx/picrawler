@@ -20,6 +20,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         "wave":         ("do_action", {"motion_name": "wave", "step": 1, "speed": 60}),
         "push up":      ("do_action", {"motion_name": "push_up", "step": 1, "speed": 50}),
         "twerk":        ("self:party", {"seconds": 12}),   # reggaeton routine from twerk.py
+        "trot":         ("self:trot", {"half_cycles": 10}),  # fast diagonal-pair gait, forward
         "look left":    ("do_action", {"motion_name": "look_left", "step": 1, "speed": 60}),
         "look right":   ("do_action", {"motion_name": "look_right", "step": 1, "speed": 60}),
         "look up":      ("do_action", {"motion_name": "look_up", "step": 1, "speed": 60}),
@@ -138,6 +139,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         "perrear": "twerk", "perrea": "twerk", "perreo": "twerk", "twerkear": "twerk", "twerkea": "twerk",
         "twerking": "twerk", "modo fiesta": "twerk", "fiesta": "twerk", "reggaeton": "twerk",
         "reguetón": "twerk", "regueton": "twerk", "bailar reggaeton": "twerk", "bailar reguetón": "twerk",
+        "trotar": "trot", "trota": "trot", "trote": "trot", "correr": "trot", "corre": "trot",
+        "carrera": "trot", "run": "trot", "running": "trot", "jog": "trot",
         "mirar a la izquierda": "look left", "mira a la izquierda": "look left", "ver a la izquierda": "look left",
         "mirar a la derecha": "look right", "mira a la derecha": "look right", "ver a la derecha": "look right",
         "mirar arriba": "look up", "mira arriba": "look up", "mirar hacia arriba": "look up",
@@ -388,6 +391,14 @@ class VoiceActiveCrawler(VoiceAssistant):
             return
         from twerk import party
         party(self.crawler, seconds=seconds, speed=70, volume=90)
+
+    def trot(self, half_cycles=10):
+        # every servo moves on every frame: same current draw worry as the twerk
+        v = self.battery_voltage()
+        if v is not None and v < self.battery_low_volts:
+            print(f"(sin pila para trotar: {v:.2f} V)")
+            return
+        self.crawler.trot(half_cycles=half_cycles, stride=30)
 
     # ── camera: only send a frame when the question is visual ────────
 
