@@ -88,7 +88,7 @@ Each conversation round: `before_listen` → wait for wake word → `on_wake` �
 
 ### Supported actions
 
-`forward`, `backward`, `turn left`, `turn right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`. `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; both are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
+`forward`, `backward`, `turn left`, `turn right`, `move left`, `move right`, `sit`, `stand`, `wave`, `push up`, `twerk`, `trot`, `look left`, `look right`, `look up`, `look down` — mapped in `VoiceActiveCrawler.ACTION_MAP`. The six movement actions take a step count (`forward 4`, default `DEFAULT_STEPS` = 3, capped at `MAX_STEPS` = 8; see `STEP_ACTIONS`), and the queue carries `(action, count)`. `move left` / `move right` sidestep without turning via `sidestep()`, a slow `Picrawler.trot()` with only strafe (the crawl gaits have no sideways step). `twerk` runs the `twerk.py` routine and `trot` runs `Picrawler.trot()` forward; these three are refused on a low battery. `ACTION_ALIASES` maps Spanish action names the LLM may emit back to these keys; the prompt pins the `ACTIONS:` line to English.
 
 ### Petronilo (Spanish assistant, `18_voice_active_crawler_gpt.py`)
 

@@ -56,6 +56,7 @@ package upgrade is pending; `~/picrawler` has untracked generated media and
 | Speaker | HAT I2S amp, driven as `hifiberry-dac` (PCM5102A), ALSA card `sndrpihifiberry` |
 | Microphone | USB PnP Sound Device (TI PCM2902, `08bb:2902`), ALSA card 2, capture only |
 | Camera | OV5647 on CSI (`rpicam-hello --list-cameras`), up to 2592×1944 @ 15.6 fps |
+| Ultrasonic | HC-SR04-style ranger on the HAT digital header: trigger `D2` (BCM 27), echo `D3` (BCM 22), read with `robot_hat.Ultrasonic`. Working: 16.0 cm steady at a fixed target, with an occasional `-2` (echo timeout) or stray long reading, so filter before acting on one sample |
 | IMU | Not detected |
 | Battery | 7.43 V at audit time; `VoiceActiveCrawler` warns below 6.9 V |
 | Cooling | No fan cooling device registered; SoC at 58.7 °C at light load |
@@ -113,6 +114,9 @@ dtoverlay=hifiberry-dac
 - I2C: `/dev/i2c-1` is the HAT header bus; `i2c-4`, `-11`, `-13`, `-14` are
   Pi 5 internal (RP1, camera, HDMI DDC).
 - SPI: `/dev/spidev0.0`, `/dev/spidev0.1`.
+- GPIO: the ultrasonic sensor sits on `D2`/`D3` (BCM 27/22), used by
+  `examples/4_avoid.py` and `picrawler-control/scripts/pc.py`. It is plain
+  GPIO, so `i2cdetect` doesn't show it.
 - `ricardo` is in `gpio`, `i2c`, `spi`, `audio` and `video`, but the examples
   still need `sudo` for robot-hat's GPIO/PWM access.
 
@@ -177,6 +181,7 @@ ssh ricardo@pi.local '
   pip3 list | grep -Ei "robot|picrawler|vilib|voice|vosk|piper"
   sudo cat /root/.config/.picrawler.config
   sudo python3 -c "from robot_hat import utils; print(utils.get_battery_voltage())"
+  sudo python3 -c "from robot_hat import Pin, Ultrasonic; s = Ultrasonic(Pin(\"D2\"), Pin(\"D3\")); print([s.read() for _ in range(5)])"
   systemctl status petronilo; systemctl list-unit-files --state=enabled
   sudo journalctl -k -b | grep -i voltage
 '
