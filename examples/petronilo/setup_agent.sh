@@ -21,7 +21,10 @@ install -d -o "$AGENT_USER" -g "$AGENT_USER" -m 700 \
     "$AGENT_HOME" "$AGENT_HOME/workspace" "$AGENT_HOME/.claude" "$AGENT_HOME/.claude/skills"
 
 # The service imports the SDK as root; the wheel bundles the Claude Code CLI.
-pip3 install --quiet --break-system-packages claude-agent-sdk
+# Some of its dependencies need newer versions than Debian ships (jsonschema,
+# rpds-py, typing_extensions), and pip can't uninstall apt's copies (no RECORD
+# file): install beside them in /usr/local, which comes first on sys.path.
+pip3 install --quiet --break-system-packages --root-user-action=ignore --ignore-installed claude-agent-sdk
 
 # Keep the agent's user out of the keys and the family's memory: the agent's
 # own file tools are limited by agent_policy, but an allowed command is not.
