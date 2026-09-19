@@ -95,6 +95,7 @@ class AgentBrain:
         self.va = None
         self._client = None
         self._mcp_names = set()
+        self._connecting = None  # asyncio.Lock, made on the loop
         self._read_roots = [os.path.expanduser(f"~{user}/.claude/skills")] if user else []
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._loop.run_forever, daemon=True).start()
@@ -105,6 +106,11 @@ class AgentBrain:
         self._robot_names = {f"mcp__{ROBOT}__{t.name}" for t in self._tools}
 
     # -- public, called from the voice loop ---------------------------------
+
+    def start(self, system_prompt):
+        """Open the conversation's session in the background (the CLI takes a
+        few seconds to start), so it is ready by the time the question is heard."""
+        asyncio.run_coroutine_threadsafe(self._connect(system_prompt), self._loop)
 
     def ask(self, text, system_prompt):
         """Yield the reply's text as it streams (tool calls run in between)."""
@@ -129,7 +135,11 @@ class AgentBrain:
 
     def _options(self, system_prompt):
         external = self._external_mcp()
-        env = {"ANTHROPIC_API_KEY": self.api_key} if self.api_key else {}
+        # Load every tool up front: deferring MCP tools behind ToolSearch costs
+        # an extra model turn, which is dead air when the answer is spoken.
+        env = {"ENABLE_TOOL_SEARCH": "false"}
+        if self.api_key:
+            env["ANTHROPIC_API_KEY"] = self.api_key
         if self.user:
             # subprocess user= switches uid but keeps root's HOME
             env["HOME"] = os.path.expanduser(f"~{self.user}")
@@ -162,12 +172,25 @@ class AgentBrain:
             decision["permissionDecisionReason"] = reason
         return {"hookSpecificOutput": decision}
 
+    async def _connect(self, system_prompt):
+        self._connecting = self._connecting or asyncio.Lock()
+        async with self._connecting:
+            if self._client is not None:
+                return
+            options, self._mcp_names = self._options(system_prompt)
+            client = ClaudeSDKClient(options)
+            try:
+                await client.connect()
+            except Exception as e:
+                print(f"(agente: no arrancó: {e})")
+                return
+            self._client = client
+
     async def _ask(self, text, system_prompt, chunks):
         try:
+            await self._connect(system_prompt)
             if self._client is None:
-                options, self._mcp_names = self._options(system_prompt)
-                self._client = ClaudeSDKClient(options)
-                await self._client.connect()
+                raise RuntimeError("the agent session did not start")
             await self._client.query(text)
             async for msg in self._client.receive_response():
                 if isinstance(msg, StreamEvent) and msg.parent_tool_use_id is None:

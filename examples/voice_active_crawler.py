@@ -150,6 +150,9 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.crawler.do_action("sit", speed=50)
 
     def on_wake(self):
+        if self.brain is not None:
+            self._refresh_system_prompt()
+            self.brain.start(self._system_msg["content"])
         self._report_battery()
         if self.greet_with_vision:
             self._vision_greeting()
