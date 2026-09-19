@@ -1,10 +1,11 @@
 from robot_hat import Robot, utils
 
-from . import body, gait, tricks
+from . import body, fidgets, gait, tricks
 
 import os
 import time
 import math
+import random
 from contextlib import contextmanager
 
 class Picrawler(Robot):
@@ -180,6 +181,17 @@ class Picrawler(Robot):
                 self.do_step(body.to_step(move.feet), speed=move.speed)
                 if move.hold:
                     time.sleep(move.hold)
+
+    def fidget(self, name=None):
+        '''
+        Make a small idle gesture from fidgets.FIDGETS (random if name is
+        None), starting and ending in the current pose.
+        '''
+        name = name or random.choice(list(fidgets.FIDGETS))
+        for move in fidgets.fidget(name, self.current_step_all_leg_value()):
+            self.do_step(body.to_step(move.feet), speed=move.speed)
+            if move.hold:
+                time.sleep(move.hold)
 
     @contextmanager
     def neutral_stance(self):

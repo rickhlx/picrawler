@@ -5,6 +5,7 @@ import time
 import queue
 import threading
 import os
+import random
 import re
 import sys
 
@@ -41,13 +42,18 @@ class VoiceActiveCrawler(VoiceAssistant):
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_dir=None, memory_llm=None, greet_with_vision=False,
                  battery_low_volts=7.3, battery_warning="", move_speed_limit=100, max_actions=None,
-                 locator=None, sonar=None, find_phrases=None, **kwargs):
+                 fidget_every=None, locator=None, sonar=None, find_phrases=None, **kwargs):
         self.action_queue = queue.Queue()
         # Calm body while talking: every move capped at this speed, and at most
         # max_actions per reply. The amp and the servos share the HAT 5 V rail.
         self.move_speed_limit = move_speed_limit
         self.max_actions = max_actions
         self._action_busy = threading.Event()
+        # Small idle gestures while he talks, one every fidget_every=(min, max)
+        # seconds when no action is running (None = keep still).
+        self.fidget_every = fidget_every
+        self._talking = threading.Event()
+        self._next_fidget = 0.0
         # Speak sentence-by-sentence while the LLM is still streaming (needs PetroniloTTS)
         self.stream_speech = stream_speech
         self._spoken_result = None
@@ -236,10 +242,11 @@ class VoiceActiveCrawler(VoiceAssistant):
         return response_text
 
     def before_say(self, text):
-        pass
+        self._start_talking()
 
     def after_say(self, text):
-        pass  # round wrap-up (wait for actions, sit) happens in on_finish_a_round
+        # round wrap-up (wait for actions, sit) happens in on_finish_a_round
+        self._talking.clear()
 
     def _finish_round_motion(self):
         self._wait_actions_done()
@@ -305,6 +312,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             kwargs["think"] = False
         response = self.llm.prompt(text, **kwargs)
         pipeline = SpeechPipeline(self.tts)
+        self._start_talking()
         llm_text, spoken_upto, speaking = "", 0, True
         try:
             for word in response:
@@ -335,6 +343,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._spoken_result = result
         finally:
             pipeline.finish()
+            self._talking.clear()
         return result
 
     def _queue_actions(self, text):
@@ -551,7 +560,29 @@ class VoiceActiveCrawler(VoiceAssistant):
                 finally:
                     self._action_busy.clear()
             except queue.Empty:
-                continue
+                self._maybe_fidget()
+
+    # ── fidgets: small gestures while talking ────────────────────────
+
+    def _start_talking(self):
+        if self.fidget_every:
+            self._next_fidget = time.time() + random.uniform(*self.fidget_every) / 2
+        self._talking.set()
+
+    def _maybe_fidget(self):
+        if not self.fidget_every or not self._talking.is_set() or time.time() < self._next_fidget:
+            return
+        self._next_fidget = time.time() + random.uniform(*self.fidget_every)
+        v = self.battery_voltage()
+        if v is not None and v < self.battery_low_volts:
+            return
+        self._action_busy.set()
+        try:
+            self.crawler.fidget()
+        except Exception as e:
+            print(f"(fidget falló: {e})")
+        finally:
+            self._action_busy.clear()
 
     def _wait_actions_done(self):
         # wait until the queue is empty AND the current action has finished
