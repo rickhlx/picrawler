@@ -42,8 +42,13 @@ class VoiceActiveCrawler(VoiceAssistant):
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_dir=None, memory_llm=None, greet_with_vision=False,
                  battery_low_volts=7.3, battery_warning="", move_speed_limit=100, max_actions=None,
-                 fidget_every=None, locator=None, sonar=None, find_phrases=None, **kwargs):
+                 fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None, **kwargs):
         self.action_queue = queue.Queue()
+        # Agent brain (petronilo_agent.AgentBrain): replies come from a Claude
+        # agent with shell, skills, MCP and robot tools instead of self.llm,
+        # which then only serves the base class. None = plain LLM + ACTIONS: line.
+        self.brain = brain
+        self._tool_moves = 0
         # Calm body while talking: every move capped at this speed, and at most
         # max_actions per reply. The amp and the servos share the HAT 5 V rail.
         self.move_speed_limit = move_speed_limit
@@ -102,6 +107,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         # (accent-insensitive, wake phrase anywhere in the transcript) instead
         # of the library's exact whole-transcript comparison.
         self.stt.heard_wake_word = self._fuzzy_heard_wake_word
+        if brain is not None:
+            brain.attach(self)
 
     @staticmethod
     def _handle_init_error(error):
@@ -299,18 +306,28 @@ class VoiceActiveCrawler(VoiceAssistant):
     _HOLD_BACK = 12   # chars kept unspoken until we know they are not the start of "ACTIONS:"
 
     def think(self, text, disable_image=False):
-        if not self.stream_speech or not hasattr(self.tts, "instructions"):
+        streaming = self.stream_speech and hasattr(self.tts, "instructions")
+        if self.brain is None and not streaming:
             return super().think(text, disable_image=disable_image)
-        from petronilo_voice import SpeechPipeline
         self.before_think(text)
-        image_path = None
-        if self.with_image and not disable_image:
-            image_path = "./img_input.jpeg"
-            self.capture_image(image_path)
-        kwargs = {"image_path": image_path, "stream": True}
-        if self.disable_think:
-            kwargs["think"] = False
-        response = self.llm.prompt(text, **kwargs)
+        if self.brain is not None:
+            # the agent takes photos itself with the look tool
+            self._tool_moves = 0
+            response = self.brain.ask(text, self._system_msg["content"])
+            if not streaming:
+                result = "".join(response).strip()
+                self.after_think(result)
+                return result
+        else:
+            image_path = None
+            if self.with_image and not disable_image:
+                image_path = "./img_input.jpeg"
+                self.capture_image(image_path)
+            kwargs = {"image_path": image_path, "stream": True}
+            if self.disable_think:
+                kwargs["think"] = False
+            response = self.llm.prompt(text, **kwargs)
+        from petronilo_voice import SpeechPipeline
         pipeline = SpeechPipeline(self.tts)
         self._start_talking()
         llm_text, spoken_upto, speaking = "", 0, True
@@ -357,6 +374,8 @@ class VoiceActiveCrawler(VoiceAssistant):
     # ── memory ────────────────────────────────────────────────────────
 
     def _end_conversation(self):
+        if self.brain is not None:
+            threading.Thread(target=self.brain.end, daemon=True).start()
         transcript, self._transcript = self._transcript, []
         if transcript:
             # one LLM call; off the main loop so the next wake word is not delayed
@@ -497,6 +516,29 @@ class VoiceActiveCrawler(VoiceAssistant):
         if triggered and message and not self._wants_image(message):
             disable_image = True
         return triggered, disable_image, message
+
+    # ── robot tools for the agent brain (petronilo_agent.robot_tools) ─
+
+    def queue_tool_action(self, action):
+        """(message, is_error) for a move the agent asked for."""
+        if action not in self.ACTION_MAP:
+            return f"Unknown action {action!r}.", True
+        if self.max_actions is not None and self._tool_moves >= self.max_actions:
+            return f"Refused: at most {self.max_actions} move(s) per reply, to spare the battery.", True
+        self._tool_moves += 1
+        self.action_queue.put(action)
+        return f"Doing {action!r} while you talk.", False
+
+    def snapshot(self):
+        if not self.with_image:
+            return None
+        path = "./img_input.jpeg"
+        self.capture_image(path)
+        return path
+
+    def sensor_readings(self):
+        distance = self.sonar() if self.sonar else None
+        return {"battery_volts": self.battery_voltage(), "distance_cm": distance}
 
     # ── conversation mode (no wake word between turns) ───────────────
 
