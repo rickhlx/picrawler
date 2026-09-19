@@ -95,6 +95,7 @@ class AgentBrain:
         self.va = None
         self._client = None
         self._mcp_names = set()
+        self._read_roots = [os.path.expanduser(f"~{user}/.claude/skills")] if user else []
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._loop.run_forever, daemon=True).start()
 
@@ -154,8 +155,8 @@ class AgentBrain:
         name, args = hook_input["tool_name"], hook_input.get("tool_input") or {}
         ok, reason = agent_policy.verdict(
             name, args, workspace=self.workspace, commands=self.commands,
-            robot_tools=self._robot_names, mcp_servers=self._mcp_names)
-        print(f"(tool {name}: {'ok' if ok else 'denied: ' + reason})")
+            robot_tools=self._robot_names, mcp_servers=self._mcp_names, read_roots=self._read_roots)
+        print(f"(tool {name}: {'ok' if ok else 'denied: ' + reason})", flush=True)
         decision = {"hookEventName": "PreToolUse", "permissionDecision": "allow" if ok else "deny"}
         if reason:
             decision["permissionDecisionReason"] = reason

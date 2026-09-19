@@ -8,9 +8,11 @@ import os
 import re
 import shlex
 
-# Built-in tools that only read, or only talk to the web
-READ_ONLY = {"Read", "Glob", "Grep", "WebSearch", "WebFetch", "Skill", "TodoWrite",
-             "ToolSearch"}  # loads deferred (MCP) tool definitions
+# Built-in tools that touch no local files
+HARMLESS = {"WebSearch", "WebFetch", "Skill", "TodoWrite",
+            "ToolSearch"}  # loads deferred (MCP) tool definitions
+# Built-in tools that read files: only inside the read roots
+READERS = {"Read", "Glob", "Grep"}
 # Built-in tools that write files: only inside the workspace
 WRITERS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
@@ -40,33 +42,48 @@ def bash_verdict(command, allowed):
     return True, ""
 
 
-def _writable(path, root):
+def _under(path, root):
+    """Whether the resolved absolute path is root or inside it."""
+    root = os.path.realpath(root)
+    return os.path.commonpath([path, root]) == root
+
+
+def _writable(path, workspace):
     """Inside the workspace, and not the files that configure the agent itself
     (project settings can define command hooks; .mcp.json starts servers)."""
-    root = os.path.realpath(root)
-    path = os.path.realpath(os.path.join(root, path))
-    if os.path.commonpath([path, root]) != root:
+    if not _under(path, workspace):
         return False
-    rel = os.path.relpath(path, root).split(os.sep)
+    rel = os.path.relpath(path, os.path.realpath(workspace)).split(os.sep)
     return ".claude" not in rel and rel[0] != ".mcp.json"
 
 
-def verdict(tool, args, *, workspace, commands, robot_tools=(), mcp_servers=()):
+def verdict(tool, args, *, workspace, commands, robot_tools=(), mcp_servers=(), read_roots=()):
     """(ok, reason) for one tool call.
+
+    read_roots: directories besides the workspace that file tools may read
+    (the skills directory). The unprivileged user can read more than that,
+    world-readable files included; this keeps the agent's own tools out.
 
     robot_tools: full names of the in-process robot tools (always allowed).
     mcp_servers: names of external MCP servers whose tools are all allowed;
     adding a server to the config is the decision to trust it.
     """
-    if tool in robot_tools or tool in READ_ONLY:
+    if tool in robot_tools or tool in HARMLESS:
         return True, ""
+    # relative paths are relative to the agent's cwd, the workspace
+    path = args.get("file_path") or args.get("notebook_path") or args.get("path") or ""
+    path = os.path.realpath(os.path.join(workspace, path))
+    if tool in READERS:
+        roots = (workspace, *read_roots)
+        if any(_under(path, r) for r in roots):
+            return True, ""
+        return False, "can only read " + ", ".join(roots)
     if tool.startswith("mcp__") and tool.split("__")[1] in mcp_servers:
         return True, ""
     if tool == "Bash":
         return bash_verdict(args.get("command", ""), commands)
     if tool in WRITERS:
-        path = args.get("file_path") or args.get("notebook_path") or ""
-        if path and _writable(path, workspace):
+        if _writable(path, workspace) and path != os.path.realpath(workspace):
             return True, ""
         return False, f"can only write inside {workspace}, and not its .claude/ or .mcp.json"
     return False, f"{tool} is not available here"
