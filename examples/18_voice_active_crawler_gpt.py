@@ -155,8 +155,8 @@ AGENT_MODEL = "claude-opus-5"
 AGENT_EFFORT = "low"   # spoken answers: keep the pause short
 # Commands he may run, by name; each part of a pipeline must be one of these. Anything that can run
 # other commands (sh, python3, xargs, find -exec, env, sudo) would open the whole shell, and file readers
-# (cat, grep) get around the policy's read limits: leave them out.
-AGENT_COMMANDS = ["date", "cal", "uptime", "free", "df", "curl", "jq", "gh"]
+# or writers (cat, grep, curl) get around the policy's file limits: leave them out. WebFetch covers HTTP.
+AGENT_COMMANDS = ["date", "cal", "uptime", "free", "df", "jq", "gh", "blogwatcher"]
 # External MCP servers, Claude Code's {"mcpServers": {...}} format; Pi-local and git-ignored since
 # it holds tokens. Every tool of a server listed here is allowed.
 AGENT_MCP_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_mcp.json")
@@ -183,8 +183,9 @@ preguntando cuál quieren ver.
   mijo", y cuando regrese di si lo encontraste.
 - look: una foto con tu cámara. Úsala cuando te pregunten qué ves, quién está o cómo se ve algo.
 - sensors: tu pila y qué tan lejos está lo que tienes enfrente.
-- La compu: puedes correr algunos comandos (la fecha, el clima con curl, GitHub con gh), usar tus skills y
-  los servicios conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
+- La compu: puedes correr algunos comandos (la fecha, GitHub con gh, los blogs que sigues con
+  blogwatcher), buscar y leer páginas web, usar tus skills (el clima, GitHub, blogs) y los servicios
+  conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
   algo, dilo con gracia y no busques otra forma de hacer lo mismo.
 
 ## Cómo contestas

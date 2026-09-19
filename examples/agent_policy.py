@@ -20,6 +20,12 @@ WRITERS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 _FORBIDDEN = re.compile(r"`|\$\(|<\(|>\(|[<>]|(?<![&|])&(?![&])|\n")
 # Command separators: every segment must start with an allowed command
 _SEPARATORS = re.compile(r"\|\||&&|[|;]")
+# Subcommands of allowed commands that run other programs (gh aliases starting
+# with "!" go through sh; extensions are arbitrary binaries; config sets the
+# pager, editor and browser) or hand out the credentials themselves
+DENIED_SUBCOMMANDS = {
+    "gh": {"alias", "extension", "ext", "config", "auth", "browse", "codespace", "cs"},
+}
 
 
 def bash_verdict(command, allowed):
@@ -39,6 +45,8 @@ def bash_verdict(command, allowed):
             return False, f"{name!r}: call allowed commands by bare name, without env assignments"
         if name not in allowed:
             return False, f"{name!r} is not an allowed command (allowed: {', '.join(sorted(allowed))})"
+        if len(words) > 1 and words[1] in DENIED_SUBCOMMANDS.get(name, ()):
+            return False, f"'{name} {words[1]}' is not allowed"
     return True, ""
 
 
