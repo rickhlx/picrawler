@@ -48,12 +48,18 @@ def robot_tools(va):
     """In-process tools bound to a VoiceActiveCrawler."""
     actions = sorted(va.ACTION_MAP)
 
+    repeatable = ", ".join(f"{a} (up to {n})" for a, (_, n) in va.REPEATABLE.items())
+
     @tool("move", "Move the body while you keep talking: one of " + ", ".join(actions) + ". "
-          "Returns at once; the move runs in the background.",
-          {"type": "object", "properties": {"action": {"type": "string", "enum": actions}},
+          "Returns at once; the move runs in the background and stops by itself. "
+          "steps repeats " + repeatable + ": forward x1 is a single step, so walking "
+          "somewhere takes several; each trot step is a couple of seconds of running.",
+          {"type": "object",
+           "properties": {"action": {"type": "string", "enum": actions},
+                          "steps": {"type": "integer", "minimum": 1, "default": 1}},
            "required": ["action"]})
     async def move(args):
-        return _text(*va.queue_tool_action(args["action"]))
+        return _text(*va.queue_tool_action(args["action"], args.get("steps", 1)))
 
     @tool("find", "Turn in place until the camera sees the object, walk up to it and stop in front. "
           "Takes up to a minute; returns what happened.",
