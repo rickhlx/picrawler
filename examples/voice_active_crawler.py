@@ -446,10 +446,13 @@ class VoiceActiveCrawler(VoiceAssistant):
     }
 
     def find(self, target):
+        self._announcements.append(self.seek(target))
+
+    def seek(self, target):
+        """Look for target and walk up to it; returns the phrase for the outcome."""
         from seeker import Seeker
         if not (self.with_image and self.locator):
-            self._announce("blind", target)
-            return
+            return self.find_phrases["blind"].format(target=target)
         frame = "./img_find.jpeg"
 
         def look():
@@ -459,10 +462,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         seeker = Seeker(self.crawler, look, self.locator, self.sonar or (lambda: None))
         result = seeker.seek(target)
         print(f"(buscar {target!r}: {result})")
-        self._announce("missing" if not result.found else "near" if result.near else "seen", target)
-
-    def _announce(self, kind, target):
-        self._announcements.append(self.find_phrases[kind].format(target=target))
+        kind = "missing" if not result.found else "near" if result.near else "seen"
+        return self.find_phrases[kind].format(target=target)
 
     def _say_announcements(self):
         lines, self._announcements = self._announcements, []
