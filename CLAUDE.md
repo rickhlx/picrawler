@@ -118,6 +118,12 @@ Two privilege levels. The robot tools (`move`, `find`, `look`, `sensors`) are an
 
 Latency is the thing to watch. The session opens at the wake word (`brain.start`) so the CLI's start-up overlaps the listening, MCP tools load up front (`ENABLE_TOOL_SEARCH=false`, no ToolSearch turn), and the prompt has him speak a sentence before any tool call. With those, on the Mac: first words about 2 s after the question, full answer with one tool call about 5 s.
 
+Adding to what he can use, all on the Pi. Skills and MCP servers are read when a conversation starts, so they need no restart; a command does.
+
+- **Skill**: copy the folder holding `SKILL.md` into `/home/petronilo/.claude/skills/` and `sudo chown -R petronilo:` it. He can read a skill's files but runs only allowlisted commands, so skills that are instructions work; skills that ship scripts don't.
+- **MCP server**: add it to `examples/petronilo_mcp.json` (`{"mcpServers": {"name": {"command": ..., "args": [...], "env": {...}}}}`, Claude Code's format) and `chmod 600` it, since it holds tokens. It runs as `petronilo`, and every tool it has is allowed. Install its runtime first: the Pi has no `node`/`npx` or `uv`/`uvx`.
+- **CLI tool**: install it (`sudo apt install gh`), log it in as the agent's user (`sudo -u petronilo -H gh auth login`), make sure its name is in `AGENT_COMMANDS`, then `make deploy`. Never allowlist a command that runs others (`sh`, `python3`, `npx`, `xargs`, `env`, `sudo`) or reads arbitrary files (`cat`, `grep`): either one gets around the policy.
+
 ### LLM backends
 
 Re-exported from `robot_hat.llm`: `OpenAI`, `Ollama`, `Doubao`, `DeepSeek`, `Gemini`, `Grok`, `Qwen`. Each takes provider-specific kwargs (api_key, model, ip for Ollama, etc.).
