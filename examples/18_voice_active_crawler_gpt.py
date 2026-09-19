@@ -151,7 +151,7 @@ ACTIONS: ACTION1, ACTION2, ...
 AGENT = True
 AGENT_USER = "petronilo"
 AGENT_WORKSPACE = f"/home/{AGENT_USER}/workspace"
-AGENT_MODEL = "claude-opus-5"
+AGENT_MODEL = "claude-fable-5-1"
 AGENT_EFFORT = "low"   # spoken answers: keep the pause short
 # Commands he may run, by name; each part of a pipeline must be one of these. Anything that can run
 # other commands (sh, python3, xargs, find -exec, env, sudo) would open the whole shell, and file readers
