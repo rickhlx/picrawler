@@ -144,6 +144,70 @@ RESPONSE_TEXT
 ACTIONS: ACTION1, ACTION2, ...
 """
 
+# ── Agent brain ──────────────────────────────────────────────────────────
+# AGENT = True: he answers through a Claude agent (petronilo_agent.py) with shell commands, skills,
+# MCP servers and his body as tools, instead of the LLM above and the ACTIONS: line. The agent runs as
+# AGENT_USER, set up by petronilo/setup_agent.sh; needs ANTHROPIC_API_KEY in secret.py.
+AGENT = True
+AGENT_USER = "petronilo"
+AGENT_WORKSPACE = f"/home/{AGENT_USER}/workspace"
+AGENT_MODEL = "claude-opus-5"
+AGENT_EFFORT = "low"   # spoken answers: keep the pause short
+# Commands he may run, by name; each part of a pipeline must be one of these. Anything that can run
+# other commands (sh, python3, xargs, find -exec, env, sudo) would open the whole shell, and file readers
+# (cat, grep) get around the policy's read limits: leave them out.
+AGENT_COMMANDS = ["date", "cal", "uptime", "free", "df", "curl", "jq", "gh"]
+# External MCP servers, Claude Code's {"mcpServers": {...}} format; Pi-local and git-ignored since
+# it holds tokens. Every tool of a server listed here is allowed.
+AGENT_MCP_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_mcp.json")
+
+AGENT_INSTRUCTIONS = """
+Always reply in Spanish (español), no matter what language the user speaks.
+
+""" + SOUL + """
+## Tu cuerpo es una herramienta
+Te mueves con la herramienta move. Muévete poco: casi siempre contesta sin moverte. UNA sola acción por
+respuesta, nunca varias, solo cuando te la pidan o cuando de verdad venga al caso: saluda (wave) cuando te
+saludan, haz lagartijas (push up) si te retan, mira a los lados (look left, look right) cuando buscas algo,
+párate (stand) o siéntate (sit) cuando te lo digan. Mientras platicas ya haces gestitos solo; no los pidas.
+"twerk" es tu perreo con música, cuando hablen de fiesta, perreo o reggaetón. "trot" es correr hacia
+adelante, cuando te pidan correr o apurarte. Trucos, solo cuando te los pidan: "nod" (sí), "shake head"
+(no), "bow" (reverencia cuando te aplauden), "high five", "shimmy" (meneo sin música), "hula", "bounce"
+(brincos), "spin" (vuelta en tu lugar), "play dead" (cuando te dicen "bang" o te matan con un chiste malo).
+Cuando te preguntan qué sabes hacer, no te muevas mientras lo dices ni digas los nombres en inglés; cierra
+preguntando cuál quieren ver.
+
+## Tus otras herramientas
+- find: buscas algo con tus ojos, giras hasta verlo, caminas hacia él y te paras antes de chocar. Úsalo
+  cuando te pidan buscar algo que puede estar en el cuarto. Antes di algo corto como "Déjame echar un ojo,
+  mijo", y cuando regrese di si lo encontraste.
+- look: una foto con tu cámara. Úsala cuando te pregunten qué ves, quién está o cómo se ve algo.
+- sensors: tu pila y qué tan lejos está lo que tienes enfrente.
+- La compu: puedes correr algunos comandos (la fecha, el clima con curl, GitHub con gh), usar tus skills y
+  los servicios conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
+  algo, dilo con gracia y no busques otra forma de hacer lo mismo.
+
+## Cómo contestas
+Empieza siempre hablando: tu primera frase va antes de usar cualquier herramienta, así no se queda callado
+el cuarto mientras trabajas. Todo lo que escribes se lee en voz alta: solo texto hablado, corto. Nada de markdown, listas, asteriscos,
+emojis ni acotaciones como *saluda*. Nunca leas comandos, rutas, JSON ni direcciones web; di el resultado
+en palabras.
+"""
+
+brain = None
+if AGENT:
+    from petronilo_agent import AgentBrain
+    from secret import ANTHROPIC_API_KEY
+    brain = AgentBrain(
+        api_key=ANTHROPIC_API_KEY,
+        workspace=AGENT_WORKSPACE,
+        user=AGENT_USER,
+        commands=AGENT_COMMANDS,
+        model=AGENT_MODEL,
+        effort=AGENT_EFFORT,
+        mcp_config=AGENT_MCP_CONFIG,
+    )
+
 vad = VoiceActiveCrawler(
     llm,
     name=NAME,
@@ -170,7 +234,8 @@ vad = VoiceActiveCrawler(
     wake_word=WAKE_WORD,
     answer_on_wake=ANSWER_ON_WAKE,
     welcome=WELCOME,
-    instructions=INSTRUCTIONS,
+    instructions=AGENT_INSTRUCTIONS if AGENT else INSTRUCTIONS,
+    brain=brain,
 )
 
 if __name__ == '__main__':

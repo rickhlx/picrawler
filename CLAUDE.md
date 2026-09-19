@@ -22,7 +22,7 @@ sudo pip3 uninstall picrawler --break -y && sudo pip3 install -e . --break --no-
 
 Then push the Mac working tree to it with `make sync` (`make sync-dry` to preview, `make deploy` to sync and restart the `petronilo` service, `make logs` to follow it; host is the `picrawler` SSH alias, override with `PI_HOST=`). It excludes Pi-local state (`secret.py`, `petronilo_memory/`, generated media, lgpio pipes) so `--delete` never removes it. rsync is the only way code reaches the Pi: never `git pull` there, its checkout is just the target of the sync. Each sync writes `~/picrawler/DEPLOYED` on the Pi (`git describe --dirty`, branch, UTC time); `make deployed` prints it. Deploy from `main` with a clean tree unless you're iterating on hardware.
 
-No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`.
+No test suite, linter, or type-checker exists in this repo. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`; Petronilo's agent brain needs `claude-agent-sdk` (its wheel bundles the Claude Code CLI; `examples/petronilo/setup_agent.sh` installs it).
 
 This repo is a fork of `sunfounder/picrawler` (remote `origin` = `rickhlx/picrawler`). The robot-hat fork mocks GPIO/I2C/audio on non-Pi hosts, so `import robot_hat` / `import picrawler` work on macOS for development (`ROBOT_HAT_MOCK=1` forces the mock on a Pi).
 
@@ -51,7 +51,11 @@ examples/              # Numbered demo scripts (0-20 match the online course; 21
   seeker.py                   # Seeker: scan with the camera, walk up, stop on the ultrasonic; VisionLocator, Sonar
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
   memory.py                   # Memory: facts + chat summaries learned after each conversation
+  petronilo_agent.py          # AgentBrain: Claude agent (claude-agent-sdk) with shell, skills, MCP and robot tools
+  agent_policy.py             # Allow/deny for every agent tool call: command allowlist, read/write roots
   petronilo/SOUL.md           # Petronilo's personality, voice, limits and story (OpenClaw-style SOUL.md)
+  petronilo/setup_agent.sh    # One-time Pi setup for the agent brain: unprivileged user, workspace, SDK
+  petronilo_mcp.json          # External MCP servers for the agent (Pi-local, git-ignored)
   petronilo_memory/           # Petronilo's learned memory, OpenClaw-style Markdown (Pi-local, git-ignored)
   secret.py                   # API keys (git-ignored)
 picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc.py, install.sh
@@ -105,6 +109,14 @@ Who he is lives in `examples/petronilo/SOUL.md`, modelled on OpenClaw's SOUL.md:
 Extra `VoiceActiveCrawler` options used here: `stt=` (HybridSTT: offline Vosk for wake word / end of speech, `gpt-4o-transcribe` for the text), `follow_up_seconds` (keep listening after an answer without the wake word), `end_phrases`, `stream_speech` (speak sentence by sentence while the LLM streams), `memory_dir` / `memory_llm` (when a conversation ends, `memory.Memory.learn` sends the transcript to `memory_llm`, which returns add/update/delete edits to the stored facts plus a summary; the system prompt, pinned against history trimming, is rebuilt with them every turn), `battery_low_volts` / `battery_warning`. Wake word is "compa" with accent-insensitive near-miss aliases. Camera frames are sent only for visual questions.
 
 His memory (`examples/petronilo_memory/`) is a Markdown workspace laid out like OpenClaw's, Pi-local and git-ignored unlike SOUL.md: `USER.md` (the family), `MEMORY.md` (plans, running jokes, requests) and `memory/YYYY-MM-DD.md` daily notes with one line per conversation; the prompt gets both files plus the two most recent daily notes. Facts are the `- ` bullets, so the files can be edited by hand with the service stopped. An old `petronilo_memory.json` is migrated on first start and renamed `.migrated`.
+
+### Agent brain (`petronilo_agent.py`)
+
+With `AGENT = True` (the default) Petronilo answers through `VoiceActiveCrawler(brain=AgentBrain(...))`, a Claude agent driven by `claude-agent-sdk`, instead of `self.llm` and the `ACTIONS:` line; the OpenAI LLM then only serves the base class, and `memory_llm`, TTS and STT stay on OpenAI. The prompt is `AGENT_INSTRUCTIONS` (SOUL.md plus how to use the tools). One conversation is one agent session, so memory edits reach the system prompt at the next wake word.
+
+Two privilege levels. The robot tools (`move`, `find`, `look`, `sensors`) are an in-process MCP server that runs in the root voice service; `move` queues onto the action thread, so the body moves while he talks, capped by `max_actions`. The Claude Code CLI runs as `AGENT_USER` (`petronilo`) with cwd `AGENT_WORKSPACE`; Bash, skills (`~petronilo/.claude/skills/`) and external MCP servers (`examples/petronilo_mcp.json`, Claude Code's `mcpServers` format) run as that user. Every tool call passes a `PreToolUse` hook backed by `agent_policy.verdict`, with `permission_mode="dontAsk"` behind it: `can_use_tool` is not enough, because allow rules in settings files approve tools before it is consulted. The policy allows Bash only when every pipeline segment starts with a name in `AGENT_COMMANDS` and there are no redirects or substitutions, keeps Read/Glob/Grep inside the workspace and skills, keeps writes inside the workspace but out of its `.claude/` and `.mcp.json`, allows every tool of a configured MCP server, and denies anything else (subagents included). Never add a command that runs other commands (`sh`, `python3`, `xargs`, `env`, `sudo`) or reads arbitrary files (`cat`, `grep`). Setup: `sudo bash ~/picrawler/examples/petronilo/setup_agent.sh` on the Pi, then `ANTHROPIC_API_KEY` in `secret.py`.
+
+Latency is the thing to watch. The session opens at the wake word (`brain.start`) so the CLI's start-up overlaps the listening, MCP tools load up front (`ENABLE_TOOL_SEARCH=false`, no ToolSearch turn), and the prompt has him speak a sentence before any tool call. With those, on the Mac: first words about 2 s after the question, full answer with one tool call about 5 s.
 
 ### LLM backends
 
