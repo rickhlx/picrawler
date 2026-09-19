@@ -10,4 +10,5 @@ __pycache__/
 .claude/worktrees/
 .claude/settings.local.json
 examples/petronilo_memory/
+examples/petronilo_mcp.json
 examples/petronilo_memory.json*

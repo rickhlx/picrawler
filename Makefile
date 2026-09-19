@@ -21,6 +21,7 @@ EXCLUDES := \
 	build/ \
 	'secret*' \
 	examples/petronilo_memory/ \
+	examples/petronilo_mcp.json \
 	'examples/petronilo_memory.json*' \
 	examples/img_input.jpeg \
 	examples/musics/reggaeton_dembow.wav \
