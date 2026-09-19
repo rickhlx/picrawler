@@ -20,7 +20,8 @@ Ordered by how much they affect the robot.
    `/proc/device-tree/chosen/power/power_reset` read `0x2`, the PMIC's
    brownout shutdown. The battery was not flat: the Robot HAT's 5 V regulator
    runs out of current.
-3. **`petronilo.service` is not installed.** The checkout is at `e8f4dab`,
+3. ~~**`petronilo.service` is not installed.**~~ Resolved: installed and
+   running. The checkout is at `e8f4dab`,
    which includes the installer step (`picrawler-control/install.sh` step 7),
    but the installer wasn't re-run: no unit exists under
    `/etc/systemd/system`. `examples/secret.py` is present, so running the
@@ -36,8 +37,10 @@ Ordered by how much they affect the robot.
    CPU and boot time. `sudo systemctl set-default multi-user.target` and
    disabling cups, rpcbind/nfs-client and packagekit is safe; keep Bluetooth
    only if a controller is paired.
-7. **`examples/secret.py` is world-readable** (`0664`). The service runs as
-   root, so `chmod 600` costs nothing.
+7. ~~**`examples/secret.py` is world-readable** (`0664`).~~ Resolved
+   2026-09-19: `examples/petronilo/setup_agent.sh` sets it to `600` and
+   `/home/ricardo` to `700`, since the agent's `petronilo` user must not read
+   them.
 8. **No firewall** (empty nftables ruleset). SSH is key-only
    (`PasswordAuthentication no`), which is the part that matters; root login is
    `without-password` (keys only).
@@ -228,6 +231,13 @@ sink is the same DAC. HDMI audio cards 0 and 1 exist but are unused.
 | GPIO stack | lgpio 0.2.2.0, rpi-lgpio 0.6, gpiozero 2.0.1, gpiod 2.2.0 | apt |
 | I2C | smbus 1.1, smbus2 0.4.3 | apt |
 | Audio I/O | PyAudio 0.2.14, sounddevice 0.5.6 | pip |
+| claude-agent-sdk | 0.2.157 (bundles Claude Code 2.1.277) | pip, by `examples/petronilo/setup_agent.sh` (2026-09-19) |
+
+The SDK's dependencies needed newer jsonschema, rpds-py and typing_extensions
+than Debian ships, and pip can't uninstall apt's copies (no RECORD file), so
+`setup_agent.sh` installs with `--ignore-installed`: the newer versions sit in
+`/usr/local` and shadow Debian's. Not installed: `node`/`npx`, `uv`/`uvx`
+(MCP server runtimes) and `gh`.
 
 robot-hat is not editable, so changes in `~/robot-hat` need a reinstall
 (`sudo pip3 install ~/robot-hat --break-system-packages`) to take effect.
@@ -238,7 +248,10 @@ with a copy in the repo at `calibration/picrawler.config`.
 
 ## Services and access
 
-- Petronilo: not installed (see Findings).
+- Petronilo: `petronilo.service`, runs as root. Its agent brain runs the
+  Claude Code CLI as the `petronilo` system user (home `700`, workspace
+  `/home/petronilo/workspace`, skills in `~petronilo/.claude/skills/`),
+  created by `setup_agent.sh` on 2026-09-19.
 - Enabled: ssh, avahi (so `pi.local` resolves), NetworkManager,
   wpa_supplicant, bluetooth, lightdm, wayvnc-control, cups, rpcbind,
   nfs-client, packagekit, rpi-eeprom-update, serial getty on `ttyAMA10`.
