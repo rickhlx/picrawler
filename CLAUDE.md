@@ -37,6 +37,7 @@ picrawler/
   imu.py               # MPU6050 driver + complementary-filter Attitude
   balance.py           # Leveler: integral roll/pitch body leveling
   tricks.py            # Crowd-pleaser tricks (bow, shimmy, play dead, ...) as body-frame keyframes
+  fidgets.py           # Small idle gestures (tilt, glance, nod, lean, tap) from the current pose
   llm.py               # Re-exports LLM classes from robot_hat.llm
   voice_assistant.py   # Re-exports VoiceAssistant from robot_hat.voice_assistant
   stt.py               # Re-exports STT from robot_hat.stt
@@ -76,6 +77,8 @@ picrawler-control/     # OpenClaw skill: SKILL.md, references/api.md, scripts/pc
 **IMU, leveling and trot** (`body.py`, `imu.py`, `balance.py`, `gait.py`) work in a body frame (REP-103: x forward, y left, z up; roll + lifts the left side, pitch + drops the nose) and produce `do_step` frames via `body.to_step(points, roll, pitch)`. `imu.MPU6050` talks through `robot_hat.I2C` at 0x68; `axes=` remaps a rotated mounting. `balance.Leveler` is an integral controller with a disc clamp: standing stays inside the shoulder servo's -10 deg limit up to ~11 deg of correction, trotting with the default 15 mm lift up to ~6 deg. `gait.Trot` is stateful (`half_cycle(stride, strafe, turn)`, `settle()`), so commands can change every half cycle. The servos have no feedback, so this is quasi-static leveling, not dynamic balance.
 
 **Tricks** (`tricks.py`): each trick returns a list of `Move(feet, speed, hold)` in the body frame, built with `pose(x, y, z, roll, pitch, yaw)` (body shifted/rotated with the feet planted) and ending in `gait.NEUTRAL`. `Picrawler.trick(name)` runs one inside `Picrawler.neutral_stance()`, which steps from the stand pose into NEUTRAL and back (trot uses it too). Add a trick by writing the function and registering it in `TRICKS`.
+
+**Fidgets** (`fidgets.py`): small slow gestures that start and end in whatever pose the robot is in (usually sit), so no stand or neutral stance. `Picrawler.fidget(name=None)` runs one, random by default. `VoiceActiveCrawler(fidget_every=(min, max))` runs one every few seconds on the action thread while speech is playing and no action is running, skipped on a low battery; Petronilo uses `(3, 7)`. They are code-driven, not LLM actions, so the prompt's "move little" rule still holds.
 
 ## Key physical constants
 

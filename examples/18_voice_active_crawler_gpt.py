@@ -82,6 +82,9 @@ BATTERY_WARNING = "Oye, mijo, se me está acabando la pila. Ponme a cargar antes
 # Every move is capped at this servo speed (0-100) and each reply runs at most MAX_ACTIONS actions.
 MOVE_SPEED_LIMIT = 40
 MAX_ACTIONS = 1
+# Not frozen, though: a small slow gesture (tilt, glance, nod, lean, foot tap) every few seconds while
+# he talks, from picrawler/fidgets.py. None keeps him still.
+FIDGET_EVERY = (3, 7)
 
 # "find <object>": the camera frames go to a small vision model, the ultrasonic
 # sensor on D2/D3 stops him short of whatever is in front.
@@ -159,6 +162,7 @@ vad = VoiceActiveCrawler(
     battery_warning=BATTERY_WARNING,
     move_speed_limit=MOVE_SPEED_LIMIT,
     max_actions=MAX_ACTIONS,
+    fidget_every=FIDGET_EVERY,
     locator=LOCATOR,
     sonar=SONAR,
     keyboard_enable=KEYBOARD_ENABLE,
