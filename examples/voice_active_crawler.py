@@ -38,6 +38,15 @@ class VoiceActiveCrawler(VoiceAssistant):
         "play dead":    ("self:trick", {"name": "play dead"}),
         "high five":    ("self:trick", {"name": "high five"}),
     }
+    # Moves the agent can repeat: the ACTION_MAP kwarg multiplied by steps, and the
+    # most steps allowed. Trot moves every servo on every frame, so it gets fewer.
+    REPEATABLE = {
+        "forward":      ("step", 8),
+        "backward":     ("step", 8),
+        "turn left":    ("step", 8),
+        "turn right":   ("step", 8),
+        "trot":         ("half_cycles", 3),
+    }
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_dir=None, memory_llm=None, greet_with_vision=False,
@@ -522,15 +531,19 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── robot tools for the agent brain (petronilo_agent.robot_tools) ─
 
-    def queue_tool_action(self, action):
+    def queue_tool_action(self, action, steps=1):
         """(message, is_error) for a move the agent asked for."""
         if action not in self.ACTION_MAP:
             return f"Unknown action {action!r}.", True
         if self.max_actions is not None and self._tool_moves >= self.max_actions:
             return f"Refused: at most {self.max_actions} move(s) per reply, to spare the battery.", True
+        _, most = self.REPEATABLE.get(action, (None, 1))
+        steps = max(1, min(int(steps), most))
         self._tool_moves += 1
-        self.action_queue.put(action)
-        return f"Doing {action!r} while you talk.", False
+        self.action_queue.put((action, steps))
+        times = f" x{steps}" if action in self.REPEATABLE else ""
+        return (f"Doing {action!r}{times} while you talk. It stops by itself when done; "
+                "you are not still moving after that."), False
 
     def snapshot(self):
         if not self.with_image:
@@ -587,6 +600,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         while self._action_running:
             try:
                 action = self.action_queue.get(timeout=0.5)
+                # the agent's moves come as (action, steps); the ACTIONS: line's as names
+                action, steps = action if isinstance(action, tuple) else (action, 1)
                 self._action_busy.set()
                 try:
                     if action == 'stop':
@@ -595,6 +610,9 @@ class VoiceActiveCrawler(VoiceAssistant):
                         self.find(action[5:])
                     elif action in self.ACTION_MAP:
                         method_name, kwargs = self.ACTION_MAP[action]
+                        if action in self.REPEATABLE and steps > 1:
+                            key = self.REPEATABLE[action][0]
+                            kwargs = {**kwargs, key: kwargs[key] * steps}
                         if method_name.startswith("self:"):
                             getattr(self, method_name[5:])(**kwargs)
                         else:
