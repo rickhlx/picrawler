@@ -59,7 +59,7 @@ KEYBOARD_ENABLE = sys.stdin.isatty()   # off when run as a service (no terminal)
 
 # Enable wake word
 WAKE_ENABLE = True
-WAKE_WORD = ["compa"]   # near-misses like "compra"/"compadre" are accepted too (see WAKE_ALIASES)
+WAKE_WORD = ["compa"]   # near-misses like "compra"/"compadre" are accepted too (see wake.WAKE_ALIASES)
 # Set wake word answer, set empty to disable
 ANSWER_ON_WAKE = "¿Qué pasó, mijo?"
 

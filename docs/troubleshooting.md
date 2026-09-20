@@ -45,6 +45,10 @@ enabled in `/boot/firmware/config.txt`.
 He answers to "compra" and "compadre" on purpose — near misses are accepted,
 because the small Vosk models garble short words.
 
+If he wakes on "compa, ¿qué hora es?" but still asks what you wanted, the
+cloud transcription of that sentence did not come back in time (six seconds);
+the wake word itself is fine, the network is not.
+
 ## He wakes, then says nothing
 
 Network or key. Everything past the wake word is a cloud call.

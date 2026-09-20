@@ -11,6 +11,11 @@ Say **"compa"**. He answers "¿Qué pasó, mijo?" and listens. Near misses like
 "compra" and "compadre" count, because Vosk is doing the wake-word listening
 offline and it is not fussy.
 
+You do not have to stop after the wake word. "Compa, ¿qué hora es?" in one
+breath works too: the word counts wherever it falls in the sentence, and when
+there is a question around it he answers that instead of asking what you
+wanted.
+
 After he answers he keeps listening for about eight seconds, so follow-ups need
 no wake word. Say "adiós", "ya estuvo", "nos vemos" or just stay quiet and the
 conversation ends.
@@ -169,8 +174,10 @@ Six models share the work, and only the first one writes what he says:
 
 All but the last two live at the top of
 [`examples/18_voice_active_crawler_gpt.py`](../examples/18_voice_active_crawler_gpt.py).
-The wake word never leaves the Pi — that is Vosk, offline, which is why it
-answers to "compra" as readily as "compa".
+Spotting the wake word never leaves the Pi — that is Vosk, offline, which is
+why it answers to "compra" as readily as "compa". Only when it hears a whole
+sentence around the wake word does that one utterance go to
+`gpt-4o-transcribe`, because the Vosk text is too rough to answer.
 
 The fallback chain matters more than the model choice. If Anthropic is
 overloaded he drops to Sonnet and keeps his tools and memory; only if the agent
