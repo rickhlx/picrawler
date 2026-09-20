@@ -156,6 +156,29 @@ class Picrawler(Robot):
             except KeyError:
                 print("No such action")
 
+    def turn_angle(self, degrees=90, side="left", step=30, speed=60):
+        '''
+        Turn roughly `degrees` in place, `step` degrees per gait cycle (the
+        turn gait only swings the feet so far in one cycle, so a half turn is
+        six cycles, not one big one). side is "left" or "right".
+
+        Nominal, not measured: the feet slip on hard floors, so a 180 comes
+        out a little short. There is no compass to close the loop with.
+        Returns the degrees asked for.
+        '''
+        side = "right" if str(side).lower().startswith("r") else "left"
+        degrees = abs(float(degrees))
+        saved = self.move_list.angle
+        turned = 0.0
+        try:
+            while degrees - turned > 0.5:
+                self.move_list.angle = min(step, degrees - turned)
+                self.do_action(f"turn {side} angle", 1, speed)
+                turned += self.move_list.angle
+        finally:
+            self.move_list.angle = saved
+        return turned
+
     def trot(self, half_cycles=8, stride=30, strafe=0, turn=0, speed=100, lift=15):
         '''
         Trot (diagonal legs swing together) for half_cycles half cycles,
