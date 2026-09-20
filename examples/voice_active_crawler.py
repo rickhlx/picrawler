@@ -1,6 +1,7 @@
 from picrawler.voice_assistant import VoiceAssistant
 from picrawler import Picrawler
 from memory import Memory
+import wake
 import time
 import queue
 import threading
@@ -370,36 +371,14 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── wake word (fuzzy) ─────────────────────────────────────────────
 
-    @staticmethod
-    def _norm_text(t):
-        import unicodedata
-        t = unicodedata.normalize("NFD", (t or "").lower())
-        return " ".join("".join(c for c in t if unicodedata.category(c) != "Mn").split())
+    _norm_text = staticmethod(wake.norm_text)
 
     def _fuzzy_heard_wake_word(self, print_callback=lambda x: print(f"heard: \x1b[K{x}", end="\r", flush=True)):
         result = self.stt.listen(stream=False)
         if result is None:
             return False
         print_callback(result)
-        heard = self._norm_text(result)
-        for w in (self.stt.wake_words or []):
-            if self._wake_match(self._norm_text(w), heard):
-                return True
-        return False
-
-    # What the small Spanish Vosk model tends to hear for each wake word.
-    WAKE_ALIASES = {
-        "compa": ("compa", "compra", "comprar", "compacta", "compadre", "con pa", "com"),
-    }
-
-    def _wake_match(self, wake, heard):
-        for pat in (wake,) + tuple(self._norm_text(a) for a in self.WAKE_ALIASES.get(wake, ())):
-            if len(pat) >= 5:
-                if pat in heard:
-                    return True
-            elif re.search(r"\b" + re.escape(pat) + r"\b", heard):
-                return True
-        return False
+        return wake.matches(result, self.stt.wake_words or [])
 
     # ── streaming speech: talk while the LLM is still writing ────────
 
