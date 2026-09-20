@@ -18,8 +18,6 @@ import json
 import time
 from dataclasses import dataclass
 
-import requests
-
 
 @dataclass
 class Sighting:
@@ -35,6 +33,22 @@ class Result:
     near: bool = False         # stopped next to it (sonar or it fills the frame)
     distance: float = None     # cm, last sonar reading when it stopped
     note: str = ""
+
+
+@dataclass
+class Scan:
+    found: bool
+    turned: float = 0.0        # degrees turned left from where the sweep started
+    position: str = "center"   # left / center / right in the frame it was spotted in
+    size: str = "small"
+    note: str = ""
+
+    @property
+    def bearing(self):
+        """Roughly where it is relative to where the robot was facing when
+        asked, in degrees to the left (0 = ahead, 180 = behind)."""
+        nudge = {"left": 15, "right": -15}.get(self.position, 0)
+        return (self.turned + nudge) % 360
 
 
 class Seeker:
@@ -53,18 +67,32 @@ class Seeker:
         self.speed = speed
 
     def seek(self, target):
-        sighting = self._scan(target)
+        """Find the target and walk up to it."""
+        sighting, _ = self._sweep(target)
         if not sighting:
             return Result(found=False)
         return self._approach(target, sighting)
 
-    def _scan(self, target):
+    def scan(self, target):
+        """Find the target and stop there, facing it, without walking to it —
+        for "where is the dog" rather than "go to the dog"."""
+        sighting, turned = self._sweep(target)
+        if not sighting:
+            return Scan(found=False, turned=turned)
+        return Scan(True, turned, sighting.position, sighting.size, sighting.note)
+
+    def _sweep(self, target):
+        """Turn in place until the target is in frame. Returns the sighting
+        (None if a full sweep found nothing) and how far it turned to get
+        there, in nominal degrees."""
+        turned = 0.0
         for _ in range(self.scan_turns):
             sighting = self._sight(target)
             if sighting.found:
-                return sighting
+                return sighting, turned
             self._turn("left", self.turn_angle)
-        return None
+            turned += self.turn_angle
+        return None, turned
 
     def _approach(self, target, sighting):
         d = None
@@ -120,6 +148,12 @@ class VisionLocator:
     )
 
     def __init__(self, api_key, model="gpt-4.1-mini", timeout=20):
+        # imported here, not at module scope, so Seeker itself runs (and is
+        # testable) on a machine without requests installed
+        import requests
+        # one connection for the whole sweep: a scan is a dozen calls, and a
+        # fresh TLS handshake each time is a dozen pauses mid-search
+        self._session = requests.Session()
         self._api_key = api_key
         self.model = model
         self.timeout = timeout
@@ -127,7 +161,7 @@ class VisionLocator:
     def __call__(self, image_path, target):
         with open(image_path, "rb") as f:
             image = base64.b64encode(f.read()).decode()
-        r = requests.post(
+        r = self._session.post(
             self.URL,
             headers={"Authorization": f"Bearer {self._api_key}"},
             json={
