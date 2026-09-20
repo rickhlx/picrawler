@@ -38,6 +38,7 @@ TTS_INSTRUCTIONS = (
 STT_MODEL = "gpt-4o-transcribe"
 STT_PROMPT = "Petronilo, robot araña, tío, mijo, órale, no manches."
 STT_TIMEOUT = 15
+WAKE_STT_TIMEOUT = 6   # the wake word cannot wait on a slow network
 STT_MAX_SECONDS = 30
 
 # One connection reused for every transcription: a fresh TLS handshake per
@@ -104,6 +105,9 @@ class HybridSTT(STT):
         # When set (seconds), listen() gives up and returns nothing if no speech
         # has started within that time. Used for the follow-up window.
         self.follow_up_timeout = None
+        # Raw PCM of the last non-streaming utterance (the wake word loop), so a
+        # wake word heard inside a sentence can be re-read by the cloud model.
+        self.last_pcm = None
 
     # ---- cloud transcription -------------------------------------------------
     def _pcm_to_wav(self, pcm):
@@ -115,7 +119,15 @@ class HybridSTT(STT):
             w.writeframes(pcm)
         return buf.getvalue()
 
-    def cloud_transcribe(self, pcm):
+    def wake_transcribe(self, pcm):
+        """Cloud reading of the wake utterance, on a shorter leash.
+
+        This one runs before he has answered anything, so a slow network must
+        not hold the wake word: give up early and let him ask instead.
+        """
+        return self.cloud_transcribe(pcm, timeout=WAKE_STT_TIMEOUT)
+
+    def cloud_transcribe(self, pcm, timeout=STT_TIMEOUT):
         """Return the cloud transcript for raw int16 mono PCM, or None on failure."""
         try:
             wav = self._pcm_to_wav(pcm)
@@ -126,7 +138,7 @@ class HybridSTT(STT):
                 files={"file": ("audio.wav", wav, "audio/wav")},
                 data={"model": self._cloud_model, "language": self._cloud_language,
                       "prompt": self._cloud_prompt, "response_format": "json"},
-                timeout=STT_TIMEOUT,
+                timeout=timeout,
             )
             if r.status_code != 200:
                 self.log.error(f"transcription HTTP {r.status_code}")  # body not logged: may echo the key
@@ -137,6 +149,41 @@ class HybridSTT(STT):
         except Exception as e:
             self.log.error(f"transcription failed: {e}")
             return None
+
+    # ---- wake listening (offline Vosk, audio kept) --------------------------
+    def _listen_non_streaming(self, q, device=None, samplerate=None, callback=None):
+        """The base loop, keeping the utterance's audio in ``last_pcm``.
+
+        The wake-word loop runs through here, one call per utterance.  Vosk is
+        what decides the wake word (offline, free), but its Spanish text is too
+        garbled to use as a question, so we hold on to the audio: if the wake
+        word turned up inside a sentence, the caller sends this same PCM to the
+        cloud model rather than making the person say it all again.
+        """
+        import queue as _queue
+        import sounddevice as sd
+        self.last_pcm = None
+        max_bytes = int(STT_MAX_SECONDS * self._samplerate * 2)
+        audio = bytearray()
+        with sd.RawInputStream(samplerate=samplerate, blocksize=1024, device=device,
+                               dtype="int16", channels=1, callback=callback):
+            while True:
+                if self.stop_listening_event.is_set():
+                    return None
+                try:
+                    data = q.get(timeout=0.5)
+                except _queue.Empty:
+                    continue
+                audio += data
+                if len(audio) > max_bytes:
+                    del audio[:len(audio) - max_bytes]
+                if self.recognizer.AcceptWaveform(data):
+                    text = json.loads(self.recognizer.Result())["text"].strip()
+                    if text == "":
+                        audio.clear()   # silence only: drop it, keep waiting
+                        continue
+                    self.last_pcm = bytes(audio)
+                    return text
 
     # ---- utterance listening (after wake) -----------------------------------
     def _listen_streaming(self, q, device=None, samplerate=None, callback=None):

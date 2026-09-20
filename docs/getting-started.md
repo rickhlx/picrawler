@@ -114,8 +114,8 @@ Then wake Petronilo up by hand before you make him a service:
 sudo python3 ~/picrawler/examples/18_voice_active_crawler_gpt.py
 ```
 
-Say **"compa"**, wait for "¿Qué pasó, mijo?", and ask him something. If he
-answers, the microphone, the speaker, the network and your key are all fine.
+Say **"compa"**, wait for "¿Qué pasó, mijo?", and ask him something (or ask it
+in the same breath: "compa, ¿qué hora es?"). If he answers, the microphone, the speaker, the network and your key are all fine.
 [Talking to Petronilo](petronilo.md) covers what he can do from here.
 
 The first run downloads the offline voice models (Piper for speech, Vosk for

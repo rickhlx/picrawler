@@ -85,3 +85,23 @@ def has_question(heard, wake_words, aliases=WAKE_ALIASES):
     """True if the wake word came wrapped in a sentence worth answering."""
     rest = remainder(heard, wake_words, aliases)
     return len(rest.split()) >= MIN_QUESTION_WORDS and len(rest) >= MIN_QUESTION_CHARS
+
+
+def question_in(heard, wake_words, pcm=None, transcribe=None, aliases=WAKE_ALIASES):
+    """The question said in the same breath as the wake word, or None to ask for it.
+
+    `heard` is the offline transcript the wake word was spotted in; it decides
+    whether there is a question at all, since it costs nothing.  The text itself
+    is too garbled to answer, so the utterance's audio (`pcm`) goes to
+    `transcribe` for a proper reading.  Anything missing or garbled and the
+    caller falls back to listening for the question.
+    """
+    if not has_question(heard, wake_words, aliases):
+        return None
+    if not pcm or transcribe is None:
+        return None
+    text = (transcribe(pcm) or "").strip()
+    # the cloud may hear only the wake word after all ("oye, compa")
+    if not text or not has_question(text, wake_words, aliases):
+        return None
+    return text

@@ -114,6 +114,9 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.memory = Memory(memory_dir, llm=memory_llm, name=kwargs.get("name", "the robot"))
         self._transcript = []     # (role, text) turns of the current conversation
         self._recording = True    # off for turns that are not part of the conversation
+        # Question heard in the same breath as the wake word, consumed by
+        # trigger_wake_word (None: ask for it the usual way).
+        self._wake_question = None
         # Vision greeting on wake (opt-in: adds ~3s before listening)
         self.greet_with_vision = greet_with_vision
         if greet_with_vision:
@@ -378,7 +381,22 @@ class VoiceActiveCrawler(VoiceAssistant):
         if result is None:
             return False
         print_callback(result)
-        return wake.matches(result, self.stt.wake_words or [])
+        if not wake.matches(result, self.stt.wake_words or []):
+            return False
+        self._wake_question = self._question_in_wake(result)
+        return True
+
+    def _question_in_wake(self, heard):
+        """The question when it came in the same breath as the wake word, else None.
+
+        People say "compa, ¿qué hora es?" in one go, and being asked to repeat
+        it is the most annoying thing he does.  Needs an STT that keeps the wake
+        utterance's audio and can send it to the cloud (HybridSTT); with any
+        other one he asks for the question as before.
+        """
+        return wake.question_in(heard, self.stt.wake_words or [],
+                                pcm=getattr(self.stt, "last_pcm", None),
+                                transcribe=getattr(self.stt, "wake_transcribe", None))
 
     # ── streaming speech: talk while the LLM is still writing ────────
 
@@ -937,10 +955,27 @@ class VoiceActiveCrawler(VoiceAssistant):
         return any(h in t for h in self.VISUAL_HINTS)
 
     def trigger_wake_word(self):
-        triggered, disable_image, message = super().trigger_wake_word()
-        if triggered and message and not self._wants_image(message):
-            disable_image = True
-        return triggered, disable_image, message
+        """Wake, and answer straight away when the question came with the wake word.
+
+        The base class always listens for a fresh utterance after waking; here a
+        question caught in the wake utterance itself is used as-is, and the
+        "¿qué pasó?" that would prompt for it is skipped.
+        """
+        if not self.stt.is_waked():
+            return False, False, ""
+        message, self._wake_question = self._wake_question, None
+        self.stt.stop_listening()
+        self.on_wake()
+        if message:
+            print(f"Waked, heard the question already: {message}")
+        else:
+            if self.answer_on_wake:
+                self.tts.say(self.answer_on_wake)
+            print("Waked, Listening ...")
+            message = self.listen()
+        self.on_heard(message)
+        self.waked = False
+        return True, bool(message) and not self._wants_image(message), message
 
     # ── robot tools for the agent brain (petronilo_agent.robot_tools) ─
 

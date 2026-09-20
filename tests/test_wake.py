@@ -77,5 +77,45 @@ class QuestionTests(unittest.TestCase):
             self.assertFalse(wake.has_question(heard, WAKE), heard)
 
 
+class QuestionInWakeTests(unittest.TestCase):
+    """What trigger_wake_word gets: the cloud reading of the wake utterance when
+    it carried a question, None when it should just ask."""
+
+    PCM = b"\x00\x01" * 100
+
+    def cloud(self, text):
+        calls = []
+
+        def transcribe(pcm):
+            calls.append(pcm)
+            return text
+
+        return transcribe, calls
+
+    def test_cloud_reading_of_the_whole_sentence(self):
+        transcribe, calls = self.cloud("Oye compa, ¿qué hora es?")
+        self.assertEqual(wake.question_in("oye compra que ora es", WAKE, self.PCM, transcribe),
+                         "Oye compa, ¿qué hora es?")
+        self.assertEqual(calls, [self.PCM])
+
+    def test_bare_wake_word_never_reaches_the_cloud(self):
+        transcribe, calls = self.cloud("Compa")
+        self.assertIsNone(wake.question_in("oye compa", WAKE, self.PCM, transcribe))
+        self.assertEqual(calls, [])
+
+    def test_cloud_hears_only_the_wake_word(self):
+        transcribe, _ = self.cloud("Compa.")
+        self.assertIsNone(wake.question_in("compa ven aca rapido", WAKE, self.PCM, transcribe))
+
+    def test_cloud_failure_falls_back_to_asking(self):
+        transcribe, _ = self.cloud(None)
+        self.assertIsNone(wake.question_in("compa que hora es", WAKE, self.PCM, transcribe))
+
+    def test_without_audio_or_transcriber(self):
+        transcribe, _ = self.cloud("compa, ¿qué hora es?")
+        self.assertIsNone(wake.question_in("compa que hora es", WAKE, None, transcribe))
+        self.assertIsNone(wake.question_in("compa que hora es", WAKE, self.PCM, None))
+
+
 if __name__ == "__main__":
     unittest.main()
