@@ -4,6 +4,7 @@ from memory import Memory
 import time
 import queue
 import threading
+import concurrent.futures
 import os
 import random
 import re
@@ -42,12 +43,19 @@ class VoiceActiveCrawler(VoiceAssistant):
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_dir=None, memory_llm=None, greet_with_vision=False,
                  battery_low_volts=7.3, battery_warning="", move_speed_limit=100, max_actions=None,
-                 fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None, **kwargs):
+                 fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None,
+                 brain_error_phrase="Se me fue la señal, mijo. Pregúntame otra vez en un ratito.",
+                 budget_phrase="Ya gasté mi domingo de hoy, mijo. Mañana seguimos platicando.",
+                 **kwargs):
         self.action_queue = queue.Queue()
         # Agent brain (petronilo_agent.AgentBrain): replies come from a Claude
         # agent with shell, skills, MCP and robot tools instead of self.llm,
         # which then only serves the base class. None = plain LLM + ACTIONS: line.
         self.brain = brain
+        # Said when the agent brain (or its LLM fallback) fails after it has
+        # already started talking, and when the day's spend cap is hit.
+        self.brain_error_phrase = brain_error_phrase
+        self.budget_phrase = budget_phrase
         self._tool_moves = 0
         # Calm body while talking: every move capped at this speed, and at most
         # max_actions per reply. The amp and the servos share the HAT 5 V rail.
@@ -316,47 +324,84 @@ class VoiceActiveCrawler(VoiceAssistant):
         if self.brain is not None:
             # the agent takes photos itself with the look tool
             self._tool_moves = 0
-            response = self.brain.ask(text, self._system_msg["content"])
             if not streaming:
-                result = "".join(response).strip()
-                self.after_think(result)
-                return result
-        else:
-            image_path = None
-            if self.with_image and not disable_image:
-                image_path = "./img_input.jpeg"
-                self.capture_image(image_path)
-            kwargs = {"image_path": image_path, "stream": True}
-            if self.disable_think:
-                kwargs["think"] = False
-            response = self.llm.prompt(text, **kwargs)
+                return self._think_agent_once(text)
+            return self._think_agent_streaming(text, disable_image)
+        return self._think_llm_streaming(text, disable_image)
+
+    def _think_agent_once(self, text):
+        # non-streaming agent turn: no pipeline, so there is nothing to fall
+        # back into mid-speech; just make sure a broken brain cannot raise.
+        try:
+            result = "".join(self.brain.ask(text, self._system_msg["content"])).strip()
+        except Exception as e:
+            if type(e).__name__ == "BudgetExceeded":
+                result = self.budget_phrase
+            else:
+                print(f"(agente falló: {e})")
+                result = self.brain_error_phrase
+        self.after_think(result)
+        return result
+
+    def _llm_response(self, text, disable_image):
+        """The legacy OpenAI streaming path: self.llm.prompt(..., stream=True)."""
+        image_path = None
+        if self.with_image and not disable_image:
+            image_path = "./img_input.jpeg"
+            self.capture_image(image_path)
+        kwargs = {"image_path": image_path, "stream": True}
+        if self.disable_think:
+            kwargs["think"] = False
+        return self.llm.prompt(text, **kwargs)
+
+    def _stream_to_speech(self, response, pipeline, state=None):
+        """Feed a text-chunk generator (LLM or agent reply) into the speech
+        pipeline as it streams, holding back the ACTIONS:/ACCIONES: line so
+        it is never spoken. Returns (llm_text, spoken_anything). If a dict is
+        passed as ``state`` it is kept updated with the partial text and the
+        spoken flag, so a caller that catches an exception raised while
+        iterating ``response`` can still recover what happened so far."""
+        if state is None:
+            state = {}
+        llm_text, spoken_upto, speaking, spoken_anything = "", 0, True, False
+        for word in response:
+            if not self.running:
+                break
+            if not word:
+                continue
+            print(word, end="", flush=True)
+            llm_text += word
+            state["text"] = llm_text
+            if not speaking:
+                continue
+            m = self._ACTIONS_RE.search(llm_text)
+            if m:
+                chunk = llm_text[spoken_upto:m.start()]
+                if chunk:
+                    pipeline.feed(chunk)
+                    spoken_anything = state["spoken"] = True
+                speaking = False
+            else:
+                safe = len(llm_text) - self._HOLD_BACK
+                if safe > spoken_upto:
+                    pipeline.feed(llm_text[spoken_upto:safe])
+                    spoken_anything = state["spoken"] = True
+                    spoken_upto = safe
+        print("")
+        if speaking:
+            chunk = llm_text[spoken_upto:]
+            if chunk:
+                pipeline.feed(chunk)
+                spoken_anything = state["spoken"] = True
+        return llm_text.strip(), spoken_anything
+
+    def _think_llm_streaming(self, text, disable_image):
         from petronilo_voice import SpeechPipeline
         pipeline = SpeechPipeline(self.tts)
         self._start_talking()
-        llm_text, spoken_upto, speaking = "", 0, True
         try:
-            for word in response:
-                if not self.running:
-                    break
-                if not word:
-                    continue
-                print(word, end="", flush=True)
-                llm_text += word
-                if not speaking:
-                    continue
-                m = self._ACTIONS_RE.search(llm_text)
-                if m:
-                    pipeline.feed(llm_text[spoken_upto:m.start()])
-                    speaking = False
-                else:
-                    safe = len(llm_text) - self._HOLD_BACK
-                    if safe > spoken_upto:
-                        pipeline.feed(llm_text[spoken_upto:safe])
-                        spoken_upto = safe
-            print("")
-            if speaking:
-                pipeline.feed(llm_text[spoken_upto:])
-            result = llm_text.strip()
+            response = self._llm_response(text, disable_image)
+            result, _spoken = self._stream_to_speech(response, pipeline)
             self.after_think(result)
             # queue actions now so the body moves while he is still talking
             self._queue_actions(result)
@@ -365,6 +410,48 @@ class VoiceActiveCrawler(VoiceAssistant):
             pipeline.finish()
             self._talking.clear()
         return result
+
+    def _think_agent_streaming(self, text, disable_image):
+        from petronilo_voice import SpeechPipeline
+        pipeline = SpeechPipeline(self.tts)
+        self._start_talking()
+        try:
+            result = self._ask_agent_streaming(text, pipeline, disable_image)
+            self.after_think(result)
+            self._queue_actions(result)
+            self._spoken_result = result
+        finally:
+            pipeline.finish()
+            self._talking.clear()
+        return result
+
+    def _ask_agent_streaming(self, text, pipeline, disable_image):
+        """Stream the agent's reply through pipeline; on failure, fall back
+        to the legacy LLM if nothing was spoken yet, or speak an apology."""
+        state = {}
+        try:
+            response = self.brain.ask(text, self._system_msg["content"])
+            return self._stream_to_speech(response, pipeline, state)[0]
+        except Exception as e:
+            spoken = state.get("spoken", False)
+            partial = state.get("text", "").strip()
+            if type(e).__name__ == "BudgetExceeded":
+                pipeline.feed(self.budget_phrase)
+                return (partial + " " + self.budget_phrase).strip()
+            if not spoken:
+                print(f"(agente falló: {e}; contesto con el LLM de respaldo)")
+                fallback_state = {}
+                try:
+                    response = self._llm_response(text, disable_image)
+                    return self._stream_to_speech(response, pipeline, fallback_state)[0]
+                except Exception as e2:
+                    print(f"(respaldo LLM también falló: {e2})")
+                    pipeline.feed(self.brain_error_phrase)
+                    fb_partial = fallback_state.get("text", "").strip()
+                    return (fb_partial + " " + self.brain_error_phrase).strip()
+            print(f"(agente falló: {e})")
+            pipeline.feed(self.brain_error_phrase)
+            return (partial + " " + self.brain_error_phrase).strip()
 
     def _queue_actions(self, text):
         saved = self._spoken_result
@@ -446,6 +533,10 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # every servo moves on every frame (shimmy/hula reverse them too): same current draw worry as the twerk
     HEAVY_TRICKS = ("spin", "bounce", "shimmy", "hula")
+    # actions the tool call should refuse up front on a low battery, before
+    # answering "Doing it" (party/trot/trick already refuse quietly on their
+    # own, but by then the agent has already told the person it would move)
+    HEAVY_ACTIONS = {"twerk", "trot", *HEAVY_TRICKS}
 
     def trick(self, name):
         if name in self.HEAVY_TRICKS:
@@ -472,6 +563,12 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def seek(self, target):
         """Look for target and walk up to it; returns the phrase for the outcome."""
+        # seek() walks the body, so it must not overlap with a queued move or
+        # a fidget: route through the action thread when called from anywhere
+        # else (the agent's find tool calls this from an asyncio worker thread)
+        worker = self._action_thread
+        if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
+            return self.run_on_action_thread(self.seek, target)
         from seeker import Seeker
         if not (self.with_image and self.locator):
             return self.find_phrases["blind"].format(target=target)
@@ -528,6 +625,11 @@ class VoiceActiveCrawler(VoiceAssistant):
             return f"Unknown action {action!r}.", True
         if self.max_actions is not None and self._tool_moves >= self.max_actions:
             return f"Refused: at most {self.max_actions} move(s) per reply, to spare the battery.", True
+        if action in self.HEAVY_ACTIONS:
+            v = self.battery_voltage()
+            if v is not None and v < self.battery_low_volts:
+                return (f"Refused: battery at {v:.2f} V is too low for {action!r}; "
+                        "say so and offer a gentler move."), True
         self._tool_moves += 1
         self.action_queue.put(action)
         return f"Doing {action!r} while you talk.", False
@@ -583,13 +685,27 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── action dispatch ──────────────────────────────────────────────
 
+    def run_on_action_thread(self, fn, *args, **kwargs):
+        """Run fn(*args, **kwargs) on the action thread and block for its
+        result. For calls that must not overlap a queued move or a fidget
+        (e.g. seek(), which walks) but come from some other thread."""
+        future = concurrent.futures.Future()
+        self.action_queue.put(("call", fn, args, kwargs, future))
+        return future.result()
+
     def _action_handler(self):
         while self._action_running:
             try:
                 action = self.action_queue.get(timeout=0.5)
                 self._action_busy.set()
                 try:
-                    if action == 'stop':
+                    if isinstance(action, tuple) and action[0] == "call":
+                        _, fn, args, kwargs, future = action
+                        try:
+                            future.set_result(fn(*args, **kwargs))
+                        except Exception as e:
+                            future.set_exception(e)
+                    elif action == 'stop':
                         self.crawler.do_action("sit", speed=50)
                     elif action.startswith("find:"):
                         self.find(action[5:])

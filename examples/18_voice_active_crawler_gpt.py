@@ -155,8 +155,19 @@ AGENT_MODEL = "claude-opus-5"
 AGENT_EFFORT = "low"   # spoken answers: keep the pause short
 # Commands he may run, by name; each part of a pipeline must be one of these. Anything that can run
 # other commands (sh, python3, xargs, find -exec, env, sudo) would open the whole shell, and file readers
-# (cat, grep) get around the policy's read limits: leave them out.
-AGENT_COMMANDS = ["date", "cal", "uptime", "free", "df", "curl", "jq", "gh"]
+# (cat, grep) get around the policy's read limits: leave them out. No curl either: the built-in WebFetch
+# tool covers it, and curl can write files (-o) or send them (-d @file). agent_policy also refuses
+# `gh alias`/`gh extension`/`gh config` (they run commands) and jq's file options (-f, --rawfile).
+AGENT_COMMANDS = ["date", "cal", "uptime", "free", "df", "jq", "gh"]
+# Spend caps: the SDK stops a conversation at AGENT_BUDGET_USD, and the brain refuses to start one once
+# the day's total passes AGENT_DAILY_BUDGET_USD (he says BUDGET_PHRASE instead). Anyone in the room can
+# talk to him, so both stay on.
+AGENT_BUDGET_USD = 0.50
+AGENT_DAILY_BUDGET_USD = 5.00
+# What he says when the agent fails after he started talking, and when the day's budget is spent. If the
+# agent fails before saying anything, the OpenAI LLM above answers that turn instead.
+BRAIN_ERROR_PHRASE = "Se me fue la señal, mijo. Pregúntame otra vez en un ratito."
+BUDGET_PHRASE = "Ya gasté mi domingo de hoy, mijo. Mañana seguimos platicando."
 # External MCP servers, Claude Code's {"mcpServers": {...}} format; Pi-local and git-ignored since
 # it holds tokens. Every tool of a server listed here is allowed.
 AGENT_MCP_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "petronilo_mcp.json")
@@ -183,8 +194,8 @@ preguntando cuál quieren ver.
   mijo", y cuando regrese di si lo encontraste.
 - look: una foto con tu cámara. Úsala cuando te pregunten qué ves, quién está o cómo se ve algo.
 - sensors: tu pila y qué tan lejos está lo que tienes enfrente.
-- La compu: puedes correr algunos comandos (la fecha, el clima con curl, GitHub con gh), usar tus skills y
-  los servicios conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
+- La compu: puedes correr algunos comandos (la fecha, GitHub con gh), buscar y leer páginas web, usar tus
+  skills y los servicios conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
   algo, dilo con gracia y no busques otra forma de hacer lo mismo.
 
 ## Cómo contestas
@@ -206,6 +217,8 @@ if AGENT:
         model=AGENT_MODEL,
         effort=AGENT_EFFORT,
         mcp_config=AGENT_MCP_CONFIG,
+        max_budget_usd=AGENT_BUDGET_USD,
+        daily_budget_usd=AGENT_DAILY_BUDGET_USD,
     )
 
 vad = VoiceActiveCrawler(
@@ -236,6 +249,8 @@ vad = VoiceActiveCrawler(
     welcome=WELCOME,
     instructions=AGENT_INSTRUCTIONS if AGENT else INSTRUCTIONS,
     brain=brain,
+    brain_error_phrase=BRAIN_ERROR_PHRASE,
+    budget_phrase=BUDGET_PHRASE,
 )
 
 if __name__ == '__main__':

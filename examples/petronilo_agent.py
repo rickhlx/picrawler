@@ -13,9 +13,14 @@ back sentence by sentence. Two processes, two privilege levels:
 
 One conversation (wake word to silence) is one agent session; the system
 prompt, with the latest memory, is fixed when the session starts.
+
+Spend is capped two ways: ``max_budget_usd`` stops a single conversation
+mid-session, and ``daily_budget_usd`` refuses to start a new one once the
+day's total is spent.
 """
 import asyncio
 import base64
+import datetime
 import json
 import os
 import queue
@@ -35,6 +40,19 @@ import agent_policy
 
 ROBOT = "robot"
 _END = object()
+
+# The policy would deny these anyway; removing them means the model never
+# spends a turn trying. AskUserQuestion would also just hang under dontAsk,
+# since nobody is there to answer it.
+DISALLOWED_TOOLS = ["Agent", "AskUserQuestion", "ComputerUse", "FileSearch", "CodeExecution"]
+
+# The find tool walks for up to a minute or more, longer than the CLI's
+# default MCP tool timeout.
+MCP_TOOL_TIMEOUT_MS = 180_000
+
+
+class BudgetExceeded(RuntimeError):
+    """Raised by AgentBrain.ask when the day's budget is already spent."""
 
 
 def _text(s, error=False):
@@ -79,10 +97,16 @@ def robot_tools(va):
 
 class AgentBrain:
     """Runs a ClaudeSDKClient on a private event loop so the synchronous voice
-    loop can call ``ask`` and iterate the reply as text chunks."""
+    loop can call ``ask`` and iterate the reply as text chunks.
+
+    ``max_budget_usd`` caps one conversation's spend (the SDK cuts the session
+    off mid-answer). ``daily_budget_usd`` refuses to start a new conversation
+    once ``spent_today`` reaches it; the caller catches ``BudgetExceeded`` and
+    speaks a canned phrase instead."""
 
     def __init__(self, *, api_key, workspace, user=None, commands=(), model="claude-opus-5",
-                 effort="low", mcp_config=None, skills="all", max_turns=12):
+                 effort="low", mcp_config=None, skills="all", max_turns=12,
+                 max_budget_usd=None, daily_budget_usd=None):
         self.api_key = api_key
         self.workspace = workspace
         self.user = user
@@ -92,6 +116,10 @@ class AgentBrain:
         self.mcp_config = mcp_config
         self.skills = skills
         self.max_turns = max_turns
+        self.max_budget_usd = max_budget_usd
+        self.daily_budget_usd = daily_budget_usd
+        self.spent_today = 0.0
+        self._spent_day = datetime.date.today()
         self.va = None
         self._client = None
         self._mcp_names = set()
@@ -143,6 +171,12 @@ class AgentBrain:
         if self.user:
             # subprocess user= switches uid but keeps root's HOME
             env["HOME"] = os.path.expanduser(f"~{self.user}")
+        # The find tool can take over a minute; the CLI's default MCP tool
+        # timeout is shorter than that.
+        env["MCP_TOOL_TIMEOUT"] = str(MCP_TOOL_TIMEOUT_MS)
+        kwargs = {}
+        if self.max_budget_usd is not None:
+            kwargs["max_budget_usd"] = self.max_budget_usd
         return ClaudeAgentOptions(
             model=self.model,
             effort=self.effort,
@@ -159,6 +193,12 @@ class AgentBrain:
             skills=self.skills,
             include_partial_messages=True,
             max_turns=self.max_turns,
+            # Only the agent user's own settings and skills, nothing from the
+            # writable workspace: a CLAUDE.md or .claude/ dropped there would
+            # shape every later session.
+            setting_sources=["user"],
+            disallowed_tools=DISALLOWED_TOOLS,
+            **kwargs,
         ), set(external)
 
     async def _gate(self, hook_input, tool_use_id, context):
@@ -186,8 +226,23 @@ class AgentBrain:
                 return
             self._client = client
 
+    def _roll_day(self):
+        today = datetime.date.today()
+        if today != self._spent_day:
+            self._spent_day = today
+            self.spent_today = 0.0
+
+    def _add_cost(self, cost):
+        self._roll_day()
+        self.spent_today += cost
+
     async def _ask(self, text, system_prompt, chunks):
         try:
+            self._roll_day()
+            if self.daily_budget_usd is not None and self.spent_today >= self.daily_budget_usd:
+                # Don't even connect; the session stays closed for next time.
+                chunks.put(BudgetExceeded(f"daily budget of ${self.daily_budget_usd:.2f} spent"))
+                return
             await self._connect(system_prompt)
             if self._client is None:
                 raise RuntimeError("the agent session did not start")
@@ -200,8 +255,15 @@ class AgentBrain:
                     elif ev.get("type") == "content_block_start" and ev["content_block"].get("type") == "text":
                         # a new text block after a tool call: keep sentences apart
                         chunks.put(" ")
-                elif isinstance(msg, ResultMessage) and msg.is_error:
-                    print(f"(agente: {msg.subtype} {msg.result or ''})")
+                elif isinstance(msg, ResultMessage):
+                    cost = msg.total_cost_usd or 0
+                    self._add_cost(cost)
+                    if msg.subtype == "error_max_budget_usd":
+                        print("(agente: tope de gasto de la conversación alcanzado)")
+                    elif msg.is_error:
+                        print(f"(agente: {msg.subtype} {msg.result or ''})")
+                    print(f"(agente: ${cost:.3f}, {msg.num_turns} turnos, "
+                          f"{msg.duration_ms / 1000:.1f}s, hoy ${self.spent_today:.2f})")
         except Exception as e:
             await self._disconnect()
             chunks.put(e)
