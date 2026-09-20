@@ -36,7 +36,8 @@ RSYNC := rsync -az --delete --itemize-changes $(addprefix --exclude ,$(EXCLUDES)
 CALI_PI   := /root/.config/.picrawler.config
 CALI_REPO := calibration/picrawler.config
 
-.PHONY: sync sync-dry deployed restart deploy logs cali-pull cali-push ask say stop status jobs
+.PHONY: sync sync-dry deployed restart deploy logs cali-pull cali-push ask say stop status jobs \
+        wifi wifi-list wifi-status
 
 sync: ## Push the working tree to the Pi and stamp what was deployed
 	$(RSYNC) ./ $(PI_HOST):$(PI_DIR)/
@@ -65,6 +66,31 @@ cali-pull: ## Copy the Pi's servo calibration into the repo (commit it afterward
 
 cali-push: ## Overwrite the Pi's servo calibration with the repo copy
 	ssh $(PI_HOST) 'sudo mkdir -p $(dir $(CALI_PI)) && sudo tee $(CALI_PI) > /dev/null' < $(CALI_REPO)
+
+# Wi-Fi: teach him a network *before* you take him there. NetworkManager joins
+# whichever known network is in range, so a pre-seeded profile means he comes up
+# on the new Wi-Fi with no screen and no keyboard. See docs/wifi.md.
+#
+# The password is typed at a prompt, never in argv or make's environment: it
+# goes into a keyfile written 600 in the Pi user's home, then installed as root.
+NM_DIR := /etc/NetworkManager/system-connections
+
+wifi: ## Teach him a network before you move him: make wifi SSID="Casa de Ana" [HIDDEN=yes]
+	@test -n "$(SSID)" || { echo 'usage: make wifi SSID="network name" [HIDDEN=yes]' >&2; exit 1; }
+	@case '$(SSID)' in */*) echo 'SSID cannot contain "/"' >&2; exit 1;; esac
+	@printf 'Wi-Fi password for %s: ' '$(SSID)'; stty -echo; read PASS; stty echo; printf '\n'; \
+	printf '[connection]\nid=%s\ntype=wifi\nautoconnect=true\n\n[wifi]\nssid=%s\nhidden=%s\npowersave=2\n\n[wifi-security]\nkey-mgmt=wpa-psk\npsk=%s\n\n[ipv4]\nmethod=auto\n\n[ipv6]\nmethod=auto\n' \
+		'$(SSID)' '$(SSID)' '$(if $(HIDDEN),true,false)' "$$PASS" \
+		| ssh $(PI_HOST) 'umask 077 && cat > ~/.wifi-new.nmconnection'
+	@ssh -t $(PI_HOST) "sudo install -m 600 -o root -g root ~/.wifi-new.nmconnection '$(NM_DIR)/$(SSID).nmconnection' \
+		&& rm -f ~/.wifi-new.nmconnection && sudo nmcli connection reload"
+	@echo "'$(SSID)' saved. He joins it whenever it is in range."
+
+wifi-list: ## Networks he already knows
+	ssh $(PI_HOST) nmcli -f NAME,TYPE,AUTOCONNECT connection show
+
+wifi-status: ## Which network he is on right now, and his address
+	ssh $(PI_HOST) "nmcli -t -f GENERAL.CONNECTION,IP4.ADDRESS device show wlan0; iwgetid -r || true"
 
 # Talk to the running service through its control socket (examples/control.py)
 CTL := ssh -t $(PI_HOST) sudo python3 $(PI_DIR)/examples/petronilo_ctl.py

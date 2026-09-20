@@ -88,6 +88,14 @@ def robot_tools(va):
     async def find(args):
         return _text(await asyncio.to_thread(va.seek, args["object"]))
 
+    @tool("where", "Look around for something and say where it is, without walking to it: turn in "
+          "place taking photos until you spot it, then stop facing it. Use this for \"where is X\" "
+          "questions; use find when you should go to it. Takes up to a minute.",
+          {"object": str})
+    async def where(args):
+        return _text(json.dumps(await asyncio.to_thread(va.locate, args["object"]),
+                                ensure_ascii=False))
+
     @tool("look", "Take a photo with the camera in your face and see it. If the question already "
           "came with a photo, answer from that one instead of calling this.", {})
     async def look(args):
@@ -164,7 +172,8 @@ def robot_tools(va):
         ok = va.scheduler.remove(args["id"])
         return _text("Cancelled." if ok else "No reminder with that id.", error=not ok)
 
-    return [move, find, look, sensors, remember, recall, forget, remind, reminders, cancel_reminder]
+    return [move, find, where, look, sensors, remember, recall, forget,
+            remind, reminders, cancel_reminder]
 
 
 class AgentBrain:

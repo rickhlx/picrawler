@@ -31,13 +31,18 @@ TTS_INSTRUCTIONS = (
     "las eses bien pronunciadas y el ritmo de barrio defeño, pero sin hablar atropellado. Nada de acento neutro, norteño "
     "ni español de España. Eres Petronilo, el tío chistoso de la familia: relajado, burlón con cariño, "
     "con ritmo de cuentachistes, entonación expresiva y una risita ocasional. Nunca suenes como "
-    "locutor ni como asistente corporativo."
+    "locutor ni como asistente corporativo. Habla rapidito, con ritmo ágil y sin arrastrar las "
+    "palabras: el chiste se cuenta rápido, no despacio. Claro, pero nunca lento."
 )
 
 STT_MODEL = "gpt-4o-transcribe"
 STT_PROMPT = "Petronilo, robot araña, tío, mijo, órale, no manches."
 STT_TIMEOUT = 15
 STT_MAX_SECONDS = 30
+
+# One connection reused for every transcription: a fresh TLS handshake per
+# utterance is dead air the person hears.
+_SESSION = requests.Session()
 
 
 class PetroniloTTS(OpenAI_TTS):
@@ -115,7 +120,7 @@ class HybridSTT(STT):
         try:
             wav = self._pcm_to_wav(pcm)
             t0 = time.time()
-            r = requests.post(
+            r = _SESSION.post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {self._api_key}"},
                 files={"file": ("audio.wav", wav, "audio/wav")},
@@ -189,6 +194,7 @@ class HybridSTT(STT):
 # ---------------------------------------------------------------------------
 import os
 import queue
+import random
 import re
 import tempfile
 import threading
@@ -199,20 +205,91 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 _MIN_SENTENCE = 12   # merge very short fragments ("¡Órale!") with the next one
 
 
+FILLER_PHRASES = (
+    "Déjame ver, mijo.",
+    "Ahorita te digo.",
+    "A ver, a ver.",
+    "Espérame tantito.",
+    "Órale, déjame checar.",
+    "Ya voy, mijo.",
+)
+
+
+class Fillers:
+    """Short openers rendered once and kept on disk.
+
+    The first sentence of an answer is synthesized over the network, so there
+    is a second or so of silence before the robot says anything. Playing a
+    pre-rendered opener during that gap costs nothing and is the difference
+    between "slow" and "thinking". Nothing is rendered on the critical path:
+    warm() does it in the background at start-up, and path() returns None
+    until the files exist.
+    """
+
+    def __init__(self, tts, phrases=FILLER_PHRASES, cache_dir="~/.petronilo_fillers"):
+        self.tts = tts
+        self.phrases = list(phrases)
+        self.dir = os.path.expanduser(cache_dir)
+        self._paths = []
+        self._lock = threading.Lock()
+
+    def warm(self, background=True):
+        """Render whatever is missing: one TTS call per new phrase, once ever."""
+        if background:
+            threading.Thread(target=self._render, daemon=True).start()
+        else:
+            self._render()
+
+    def _render(self):
+        try:
+            os.makedirs(self.dir, exist_ok=True)
+        except OSError as e:
+            print(f"(no pude preparar las muletillas: {e})")
+            return
+        paths = []
+        fmt = getattr(self.tts, "AUDIO_FORMAT", "wav")
+        for i, phrase in enumerate(self.phrases):
+            path = os.path.join(self.dir, f"filler{i}.{fmt}")
+            if not os.path.exists(path):
+                try:
+                    if not self.tts.tts(phrase, output_file=path,
+                                        instructions=self.tts.instructions, stream=False):
+                        continue
+                except Exception as e:
+                    print(f"(no pude grabar {phrase!r}: {e})")
+                    continue
+            paths.append(path)
+        with self._lock:
+            self._paths = paths
+
+    def path(self):
+        """A rendered opener, or None while none is ready."""
+        with self._lock:
+            return random.choice(self._paths) if self._paths else None
+
+
 class SpeechPipeline:
     """Feed text chunks as they stream in; sentences are synthesized ahead of
     playback (network) and played in order, so speech starts after the first
     sentence instead of after the whole answer.  Uses PetroniloTTS (OpenAI)
     and falls back to its offline Piper voice per sentence."""
 
-    def __init__(self, tts):
+    def __init__(self, tts, opener=None, opener_after=0.7):
+        """opener: path to a pre-rendered WAV (see Fillers) played only if the
+        first real sentence is not ready within opener_after seconds. It goes
+        through this same worker, so it can never overlap the answer."""
         self.tts = tts
+        self.opener = opener
+        self.opener_after = opener_after
         self._buf = ""
         self._pending = ""
         self._sentences = queue.Queue()   # str | None
         self._audio = queue.Queue()       # (path|None, sentence) | None
         self._done = threading.Event()
         self._cancelled = threading.Event()
+        self._emitted = False             # any sentence has been queued
+        self._first_done = threading.Event()  # first sentence finished playing
+        self._playing = threading.Event()     # audio is coming out right now
         self._tmpdir = tempfile.mkdtemp(prefix="petronilo_")
         threading.Thread(target=self._synth_worker, daemon=True).start()
         threading.Thread(target=self._play_worker, daemon=True).start()
@@ -237,7 +314,28 @@ class SpeechPipeline:
             self._pending = s
             return
         self._pending = ""
+        self._emitted = True
         self._sentences.put(s)
+
+    def is_speaking(self):
+        """True while audio is playing or waiting to play. An answer can be
+        'in progress' with the room silent — he is mid tool call — and that is
+        when the body may move at full speed."""
+        return (self._playing.is_set()
+                or not self._audio.empty()
+                or not self._sentences.empty())
+
+    def wait_first_sentence(self, timeout=5):
+        """Block until the first sentence has finished playing.
+
+        For work that he announces before doing it ("déjame echar un ojo") and
+        that moves the body: the sentence is synthesized over the network, so
+        without this the robot turns first and the narration lands after it.
+        Returns at once when nothing has been said or queued.
+        """
+        if not (self._emitted or self._buf or self._pending):
+            return False
+        return self._first_done.wait(timeout)
 
     def cancel(self):
         """Cancel this pipeline: drops everything not already playing. The
@@ -264,6 +362,7 @@ class SpeechPipeline:
                         os.remove(path)
                     except OSError:
                         pass
+        self._first_done.set()   # nothing more will play: release the waiters
         # unblock the synth worker (it forwards this None to the play worker,
         # which is what sets _done and lets finish() return)
         self._sentences.put(None)
@@ -301,29 +400,48 @@ class SpeechPipeline:
 
     def _play_worker(self):
         try:
-            while True:
-                item = self._audio.get()
-                if item is None:
-                    break
+            item = self._first()
+            while item is not None:
                 path, sentence = item
-                try:
-                    if path:
-                        with AudioPlayer(gain=self.tts._gain) as player:
-                            player.play_file(path)
-                    else:
-                        print("(OpenAI TTS unavailable, using offline Piper voice)")
-                        self.tts._get_fallback().say(sentence)
-                except Exception as e:
-                    self.tts.log.error(f"playback failed: {e}")
-                finally:
-                    if path:
-                        try:
-                            os.remove(path)
-                        except OSError:
-                            pass
+                self._play(path, sentence)
+                self._first_done.set()
+                item = self._audio.get()
         finally:
             try:
                 os.rmdir(self._tmpdir)
             except OSError:
                 pass
+            self._first_done.set()
             self._done.set()
+
+    def _first(self):
+        """The first audio item, filling the wait with a pre-rendered opener
+        if the real first sentence is slow to arrive."""
+        if not self.opener:
+            return self._audio.get()
+        try:
+            return self._audio.get(timeout=self.opener_after)
+        except queue.Empty:
+            pass
+        if not self._cancelled.is_set():
+            self._play(self.opener, keep=True)
+        return self._audio.get()
+
+    def _play(self, path, sentence=None, keep=False):
+        self._playing.set()
+        try:
+            if path:
+                with AudioPlayer(gain=self.tts._gain) as player:
+                    player.play_file(path)
+            elif sentence:
+                print("(OpenAI TTS unavailable, using offline Piper voice)")
+                self.tts._get_fallback().say(sentence)
+        except Exception as e:
+            self.tts.log.error(f"playback failed: {e}")
+        finally:
+            self._playing.clear()
+            if path and not keep:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass

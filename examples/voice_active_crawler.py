@@ -24,6 +24,10 @@ class VoiceActiveCrawler(VoiceAssistant):
         "backward":     ("do_action", {"motion_name": "backward", "step": 1, "speed": 70}),
         "turn left":    ("do_action", {"motion_name": "turn left", "step": 1, "speed": 70}),
         "turn right":   ("do_action", {"motion_name": "turn right", "step": 1, "speed": 70}),
+        # a quarter and a half turn in place: six gait cycles for the 180, so it is
+        # slower than it sounds and lands a little short (the feet slip)
+        "turn 90":      ("turn_angle", {"degrees": 90, "side": "left", "speed": 70}),
+        "turn 180":     ("turn_angle", {"degrees": 180, "side": "left", "speed": 70}),
         "sit":          ("do_action", {"motion_name": "sit", "step": 1, "speed": 50}),
         "stand":        ("do_action", {"motion_name": "stand", "step": 1, "speed": 50}),
         "wave":         ("do_action", {"motion_name": "wave", "step": 1, "speed": 60}),
@@ -48,7 +52,8 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def __init__(self, *args, stt=None, follow_up_seconds=0, end_phrases=None, farewell="",
                  stream_speech=True, memory_dir=None, memory_llm=None, greet_with_vision=False,
-                 battery_low_volts=7.3, battery_warning="", move_speed_limit=100, max_actions=None,
+                 battery_low_volts=7.3, battery_warning="", move_speed_limit=100,
+                 move_speed_idle=None, fillers=None, max_actions=None,
                  fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None,
                  brain_error_phrase="Se me fue la señal, mijo. Pregúntame otra vez en un ratito.",
                  budget_phrase="Ya gasté mi domingo de hoy, mijo. Mañana seguimos platicando.",
@@ -87,6 +92,12 @@ class VoiceActiveCrawler(VoiceAssistant):
         # Calm body while talking: every move capped at this speed, and at most
         # max_actions per reply. The amp and the servos share the HAT 5 V rail.
         self.move_speed_limit = move_speed_limit
+        # Speed cap for moving in silence. The 3 A rail feeds the servos and
+        # the speaker amp, so it is talking at the same time that browns the
+        # Pi out; walking or turning on its own can be quicker.
+        self.move_speed_idle = move_speed_idle if move_speed_idle is not None else move_speed_limit
+        self.fillers = fillers          # pre-rendered openers (petronilo_voice.Fillers)
+        self._last_distance = None      # cm, from the last sonar read
         self.max_actions = max_actions
         self._action_busy = threading.Event()
         # Small idle gestures while he talks, one every fidget_every=(min, max)
@@ -115,6 +126,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.locator = locator
         self.sonar = sonar
         self.find_phrases = {**self.FIND_PHRASES, **(find_phrases or {})}
+        self.where_phrases = dict(self.WHERE_PHRASES)
         self._announcements = []  # said once the round's actions finish
         # Conversation mode: after answering, keep listening this many seconds
         # for the next question without requiring the wake word (0 = off).
@@ -183,6 +195,8 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.crawler.do_action("sit", speed=50)
         if self.scheduler is not None:
             threading.Thread(target=self._scheduler_loop, daemon=True).start()
+        if self.fillers is not None:
+            self.fillers.warm()          # in the background: one TTS call per phrase, once ever
         self._idle.set()
 
     def before_listen(self):
@@ -198,6 +212,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._refresh_system_prompt()
             self.brain.start(self._system_msg["content"])
         self._report_battery()
+        threading.Thread(target=self._read_distance, daemon=True).start()
         if self.greet_with_vision:
             self._vision_greeting()
 
@@ -240,6 +255,9 @@ class VoiceActiveCrawler(VoiceAssistant):
         v = self._last_volts
         if v is not None:
             text += f" Pila: {v:.2f} V" + (" (baja)." if v < self.battery_low_volts else ".")
+        d = self._last_distance
+        if d is not None:
+            text += f" Enfrente de ti, a {d:.0f} cm."
         return text
 
     # Spanish (and a few loose English) names the LLM may emit -> ACTION_MAP keys
@@ -252,6 +270,12 @@ class VoiceActiveCrawler(VoiceAssistant):
         "izquierda": "turn left", "voltear a la izquierda": "turn left",
         "girar a la derecha": "turn right", "gira a la derecha": "turn right",
         "derecha": "turn right", "voltear a la derecha": "turn right",
+        "media vuelta": "turn 180", "date la vuelta": "turn 180", "date vuelta": "turn 180",
+        "voltéate": "turn 180", "volteate": "turn 180", "voltea": "turn 180",
+        "voltearse": "turn 180", "vuélvete": "turn 180", "vuelvete": "turn 180",
+        "gira 180": "turn 180", "girar 180": "turn 180", "180": "turn 180", "turn around": "turn 180",
+        "cuarto de vuelta": "turn 90", "gira 90": "turn 90", "girar 90": "turn 90", "90": "turn 90",
+        "noventa grados": "turn 90", "ciento ochenta grados": "turn 180",
         "sentarse": "sit", "siéntate": "sit", "sientate": "sit", "sentado": "sit",
         "pararse": "stand", "párate": "stand", "parate": "stand", "levantarse": "stand",
         "levántate": "stand", "levantate": "stand", "de pie": "stand", "ponerse de pie": "stand",
@@ -286,6 +310,9 @@ class VoiceActiveCrawler(VoiceAssistant):
         a = action.strip().strip('.;:"\'[]()').lower()
         if a in self.ACTION_MAP or a == "stop":
             return a
+        m = self._WHERE_RE.match(a)
+        if m:
+            return "where:" + m.group(1).strip()
         m = self._FIND_RE.match(a)
         if m:
             return "find:" + m.group(1).strip()
@@ -458,9 +485,15 @@ class VoiceActiveCrawler(VoiceAssistant):
                 spoken_anything = state["spoken"] = True
         return llm_text.strip(), spoken_anything
 
-    def _think_llm_streaming(self, text, disable_image):
+    def _speech_pipeline(self, opener=True):
+        """A pipeline for one answer. With an opener, a pre-rendered filler
+        covers the gap while the first sentence is still being synthesized."""
         from petronilo_voice import SpeechPipeline
-        pipeline = SpeechPipeline(self.tts)
+        path = self.fillers.path() if (opener and self.fillers is not None) else None
+        return SpeechPipeline(self.tts, opener=path)
+
+    def _think_llm_streaming(self, text, disable_image):
+        pipeline = self._speech_pipeline()
         self._pipeline = pipeline
         self._start_talking()
         try:
@@ -477,8 +510,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         return result
 
     def _think_agent_streaming(self, text, disable_image):
-        from petronilo_voice import SpeechPipeline
-        pipeline = SpeechPipeline(self.tts)
+        pipeline = self._speech_pipeline()
         self._pipeline = pipeline
         self._start_talking()
         try:
@@ -570,8 +602,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             else:
                 response = self.brain.ask(prompt, self._system_msg["content"])
             if speak:
-                from petronilo_voice import SpeechPipeline
-                pipeline = SpeechPipeline(self.tts)
+                pipeline = self._speech_pipeline(opener=False)
                 self._pipeline = pipeline
                 self._start_talking()
                 state = {}
@@ -798,12 +829,21 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # "find red cup" / "buscar taza roja" / "encuentra mi taza" -> find:<target>
     _FIND_RE = re.compile(r"(?:search for|look for|find|search|buscar|busca|encontrar|encuentra)\s+(.+)")
+    # "where el perro" / "dónde está el perro" -> where:<target> (look, don't walk)
+    _WHERE_RE = re.compile(r"(?:where is|where|dónde está|donde esta|dónde|donde)\s+(.+)")
 
     FIND_PHRASES = {
         "near": "¡Lo encontré, mijo! {target}, aquí enfrentito de mí.",
         "seen": "Ya vi {target}, pero no pude llegar hasta ahí.",
         "missing": "Chale, di toda la vuelta y no vi {target} por ningún lado.",
         "blind": "No puedo buscar {target}, mijo: traigo los ojos apagados.",
+    }
+
+    # "where is X": the same sweep as find, but it stops at the sighting
+    # instead of walking over to it
+    WHERE_PHRASES = {
+        "found": "Ya vi {target}, {where}.",
+        "missing": "Di toda la vuelta y no vi {target} por ningún lado, mijo.",
     }
 
     def find(self, target):
@@ -820,6 +860,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         from seeker import Seeker
         if not (self.with_image and self.locator):
             return self.find_phrases["blind"].format(target=target)
+        self._announce_first()
         frame = "./img_find.jpeg"
 
         def look():
@@ -831,6 +872,63 @@ class VoiceActiveCrawler(VoiceAssistant):
         print(f"(buscar {target!r}: {result})")
         kind = "missing" if not result.found else "near" if result.near else "seen"
         return self.find_phrases[kind].format(target=target)
+
+    def _announce_first(self, timeout=5):
+        """Let him finish the sentence that announced this before the body
+        starts moving. The sentence is synthesized over the network, so
+        without this he turns first and says "déjame echar un ojo" after."""
+        pipeline = self._pipeline
+        if pipeline is not None:
+            pipeline.wait_first_sentence(timeout)
+
+    def where(self, target):
+        self._announcements.append(self._where_phrase(target))
+
+    def _where_phrase(self, target):
+        info = self.locate(target)
+        if info.get("error"):
+            return self.find_phrases["blind"].format(target=target)
+        kind = "found" if info["found"] else "missing"
+        return self.where_phrases[kind].format(target=target, where=info.get("where") or "")
+
+    def locate(self, target):
+        """Look around for target and stop facing it, without walking over.
+        Returns what the agent's `where` tool reports back."""
+        # turns the body, so the same action-thread rule as seek() applies
+        worker = self._action_thread
+        if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
+            return self.run_on_action_thread(self.locate, target)
+        from seeker import Seeker
+        if not (self.with_image and self.locator):
+            return {"found": False, "error": "the camera is off"}
+        self._announce_first()
+        frame = "./img_find.jpeg"
+
+        def look():
+            self.capture_image(frame)
+            return frame
+
+        result = Seeker(self.crawler, look, self.locator).scan(target)
+        print(f"(dónde está {target!r}: {result})")
+        return {
+            "found": result.found,
+            # where it is relative to where he was facing when asked
+            "where": self._bearing_words(result.bearing) if result.found else None,
+            "turned_degrees": round(result.turned),
+            "detail": result.note,
+            # he stopped facing it, so he is no longer facing whoever asked
+            "now_facing_it": result.found,
+        }
+
+    @staticmethod
+    def _bearing_words(bearing):
+        if bearing < 45 or bearing >= 315:
+            return "enfrente"
+        if bearing < 135:
+            return "a tu izquierda"
+        if bearing < 225:
+            return "detrás de ti"
+        return "a tu derecha"
 
     def _say_announcements(self):
         lines, self._announcements = self._announcements, []
@@ -891,7 +989,20 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def sensor_readings(self):
         distance = self.sonar() if self.sonar else None
+        if distance is not None:
+            self._last_distance = distance
         return {"battery_volts": self.battery_voltage(), "distance_cm": distance}
+
+    def _read_distance(self):
+        """Read the sonar off the critical path (while he is listening) so the
+        reading can ride along with the next message instead of costing a
+        tool call."""
+        if not self.sonar:
+            return
+        try:
+            self._last_distance = self.sonar()
+        except Exception as e:
+            print(f"(no pude medir la distancia: {e})")
 
     # ── conversation mode (no wake word between turns) ───────────────
 
@@ -946,6 +1057,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             try:
                 action = self.action_queue.get(timeout=0.5)
                 self._action_busy.set()
+                self._apply_speed_limit()
                 try:
                     if isinstance(action, tuple) and action[0] == "call":
                         _, fn, args, kwargs, future = action
@@ -957,6 +1069,8 @@ class VoiceActiveCrawler(VoiceAssistant):
                         self.crawler.do_action("sit", speed=50)
                     elif action.startswith("find:"):
                         self.find(action[5:])
+                    elif action.startswith("where:"):
+                        self.where(action[6:])
                     elif action in self.ACTION_MAP:
                         method_name, kwargs = self.ACTION_MAP[action]
                         if method_name.startswith("self:"):
@@ -979,6 +1093,21 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._next_fidget = time.time() + random.uniform(*self.fidget_every) / 2
         self._talking.set()
 
+    def _apply_speed_limit(self):
+        """Full speed when nobody is talking. The cap is there because the
+        servos and the speaker amp share one 3 A rail (docs/pi-config.md,
+        Power): it is moving *and* talking that browns the Pi out, so a walk
+        or a turn in silence — a find sweep, a scheduled move — can be quick."""
+        pipeline = self._pipeline
+        # "talking" stays set for the whole answer, but the room is silent
+        # while he waits on a tool: that gap is safe to move quickly in.
+        speaking = self._talking.is_set() and (pipeline is None or pipeline.is_speaking())
+        limit = self.move_speed_limit if speaking else self.move_speed_idle
+        try:
+            self.crawler.speed_limit = limit
+        except Exception:
+            pass
+
     def _maybe_fidget(self):
         if not self.fidget_every or not self._talking.is_set() or time.time() < self._next_fidget:
             return
@@ -988,6 +1117,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             return
         self._action_busy.set()
         try:
+            self.crawler.speed_limit = self.move_speed_limit
             self.crawler.fidget()
         except Exception as e:
             print(f"(fidget falló: {e})")
