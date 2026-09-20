@@ -25,6 +25,24 @@ Quick Links:
 
 ## Docs
 
+How-to guides for this fork live in [`docs/`](docs/README.md):
+
+| Guide | For |
+|-------|-----|
+| [Getting started](docs/getting-started.md) | A fresh Pi to a robot that stands, walks and talks |
+| [Talking to Petronilo](docs/petronilo.md) | Day-to-day use: wake word, actions, reminders, Telegram |
+| [Seeing with the camera](docs/camera.md) | Photos, video, detection, finding things |
+| [Sensors](docs/sensors.md) | Ultrasonic, battery, IMU |
+| [Deploying changes](docs/deploying.md) | The Mac → Pi workflow |
+| [Teaching him new tricks](docs/extending-petronilo.md) | Actions, tools, skills, MCP servers, commands |
+| [Writing moves](docs/writing-moves.md) | Poses, gaits, tricks, self-leveling |
+| [Making him feel faster](docs/latency.md) | Where the seconds go |
+| [Moving him to another network](docs/wifi.md) | Wi-Fi without a screen |
+| [Troubleshooting](docs/troubleshooting.md) | When something breaks |
+| [Pi and HAT configuration](docs/pi-config.md) | The device audit |
+
+The upstream SunFounder documentation is still useful for the stock hardware:
+
 - <https://docs.sunfounder.com/projects/pi-crawler/en/latest/>
 
 ----------------------------------------------
@@ -146,14 +164,22 @@ sudo python3 ~/picrawler/examples/1_move.py
 | 22 | `22_self_level.py` | Stand and hold the body level on a tilting surface (MPU6050) |
 | 23 | `23_trot.py` | Keyboard-driven trot gait, optionally self-leveling (`--level`, `--max-dps`) |
 | 24 | `24_tricks.py` | Crowd-pleaser tricks: bow, nod, shake head, shimmy, hula, bounce, spin, play dead, high five |
+| 25 | `25_find.py` | Look around for an object with the camera, walk up to it, stop on the ultrasonic |
+| | `stream.py` | Serve the camera on `http://<pi>:9000/` (`--face`, `--color`, `--qr`, `--flip`) |
 | | `twerk.py` | Reggaeton twerk dance to a synthesized dembow beat |
 | | `servo_zeroing.py` | Servo zeroing utility |
 
 Helper modules used by the examples (not run directly):
 
-- `voice_active_crawler.py` — `VoiceActiveCrawler`, the voice assistant base class that maps LLM actions to robot moves.
-- `petronilo_voice.py` — `PetroniloTTS` (OpenAI TTS with a persona, Piper fallback) and `HybridSTT` (offline Vosk wake word + OpenAI transcription).
-- `memory.py` — `Memory`, long-term memory the assistant updates on its own after each conversation.
+- `voice_active_crawler.py` — `VoiceActiveCrawler`, the voice assistant base class that maps actions to robot moves.
+- `petronilo_voice.py` — `PetroniloTTS` (OpenAI TTS with a persona, Piper fallback), `HybridSTT` (offline Vosk wake word + OpenAI transcription), `SpeechPipeline` (sentence-by-sentence speech) and `Fillers` (pre-rendered openers).
+- `petronilo_agent.py` — `AgentBrain`, the Claude agent that answers for him, with his body, memory and reminders as tools.
+- `agent_policy.py` — allow/deny for every agent tool call: command allowlist, read/write roots.
+- `memory.py` — `Memory`, long-term memory the assistant updates on its own after each conversation, plus verbatim transcripts.
+- `scheduler.py` — reminders and scheduled tasks in `jobs.json`, fired when he is idle.
+- `control.py` / `petronilo_ctl.py` — local control socket and its CLI (`make ask`, `make say`, `make stop`, `make status`, `make jobs`).
+- `telegram_bridge.py` — text in from allowlisted chats, answers out, mirrors whatever he says on his own.
+- `seeker.py` — `Seeker` (look around for something, walk to it or just report where it is), `VisionLocator`, `Sonar`.
 - `spanish_tts.py` — Mexican Spanish Piper model name and `EspeakES`, a Spanish Espeak voice.
 - `petronilo.service` — systemd unit to run Petronilo on boot.
 
@@ -173,7 +199,10 @@ The TTS demos (`3_sound_effect.py`, `8_treasure_hunt.py`, `16_tts.py`) speak Mex
 
 - **Wake word:** say "compa" (near-misses such as "compra" or "compadre" are accepted). After each answer he keeps listening for about 8 seconds, so follow-ups need no wake word; silence or a goodbye sends him back to waiting.
 - **Speech:** OpenAI `gpt-4o-mini-tts` for his voice and `gpt-4o-transcribe` for what you say, each falling back to offline Piper / Vosk if the request fails. Speech starts after the first sentence while the rest of the answer is still streaming.
-- **Actions:** the usual moves (forward, turn, sit, wave, look around...) plus `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota") and the [tricks](#tricks) below. He nods and shakes his head along with what he says, bows for applause, and plays dead when you say "bang". Twerk, trot, spin and bounce are refused on a low battery.
+- **Brain:** a Claude agent (`claude-fable-5-1`) with his body, camera, memory, reminders, a few shell commands, the web, skills and MCP servers as tools. `AGENT = False` falls back to the OpenAI model and the `ACTIONS:` line.
+- **Actions:** the usual moves (forward, turn, sit, wave, look around...), `turn 90` / `turn 180` in place ("voltéate", "date la vuelta"), `twerk` and `trot` (a fast run forward, triggered by "corre" / "trota") and the [tricks](#tricks) below. He nods and shakes his head along with what he says, bows for applause, and plays dead when you say "bang". Twerk, trot, spin and bounce are refused on a low battery.
+- **Eyes:** "búscame las llaves" walks him to it; "¿dónde está el perro?" just turns until he sees it and tells you which way it is. Visual questions carry a camera frame with them.
+- **Without the microphone:** `make ask MSG="..."`, `make say`, `make stop`, `make status`, `make jobs` over the control socket, and Telegram if configured.
 - **Camera:** frames are sent to the model only for visual questions.
 - **Memory:** when a conversation ends, a small model (`gpt-4.1-mini`) reads it and adds, corrects or forgets facts about the family, plus a one-line summary of the chat, as Markdown in `examples/petronilo_memory/`, laid out like OpenClaw's memory: `USER.md` for the family, `MEMORY.md` for plans and running jokes, and a daily note per day under `memory/` (Pi-local, not tracked, editable by hand). Both are in his prompt from the next turn on; nobody has to say "acuérdate".
 
