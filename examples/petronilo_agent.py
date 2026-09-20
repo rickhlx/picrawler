@@ -14,8 +14,13 @@ back sentence by sentence. Two processes, two privilege levels:
   owns the servos, camera, sonar, memory (``memory.py``) and scheduler
   (``scheduler.py``).
 
-One conversation (wake word to silence) is one agent session; the system
-prompt, with the latest memory, is fixed when the session starts.
+One conversation (wake word to silence) is one agent session. If the next
+one starts within ``resume_within`` seconds, the session is resumed instead
+(``resume=``), so he still has the last exchange word for word; the system
+prompt is sent with ``snapshot: False`` so the freshly learned memory reaches
+a resumed session too. The date, time and battery travel in a
+``UserPromptSubmit`` hook with every message, which keeps the system prompt
+byte-stable for the prompt cache.
 
 Spend is capped two ways: ``max_budget_usd`` stops a single conversation
 mid-session, and ``daily_budget_usd`` refuses to start a new one once the
@@ -28,6 +33,7 @@ import json
 import os
 import queue
 import threading
+import time
 
 from claude_agent_sdk import (
     ClaudeAgentOptions,
@@ -82,7 +88,8 @@ def robot_tools(va):
     async def find(args):
         return _text(await asyncio.to_thread(va.seek, args["object"]))
 
-    @tool("look", "Take a photo with the camera in your face and see it.", {})
+    @tool("look", "Take a photo with the camera in your face and see it. If the question already "
+          "came with a photo, answer from that one instead of calling this.", {})
     async def look(args):
         path = await asyncio.to_thread(va.snapshot)
         if not path:
@@ -108,7 +115,8 @@ def robot_tools(va):
         file = "user" if args["about"] == "family" else "memory"
         return _text(va.memory.add_fact(args["text"], file))
 
-    @tool("recall", "Search the robot's long-term memory and recent conversations for something.",
+    @tool("recall", "Search the robot's long-term memory, the daily notes and past conversations "
+          "word for word for something.",
           {"query": str})
     async def recall(args):
         results = va.memory.search(args["query"])
@@ -170,7 +178,8 @@ class AgentBrain:
 
     def __init__(self, *, api_key, workspace, user=None, commands=(), model="claude-opus-5",
                  effort="low", mcp_config=None, skills="all", max_turns=12,
-                 max_budget_usd=None, daily_budget_usd=None):
+                 max_budget_usd=None, daily_budget_usd=None, fallback_model=None,
+                 resume_within=1800, state_path=None):
         self.api_key = api_key
         self.workspace = workspace
         self.user = user
@@ -182,8 +191,24 @@ class AgentBrain:
         self.max_turns = max_turns
         self.max_budget_usd = max_budget_usd
         self.daily_budget_usd = daily_budget_usd
+        # Used by the CLI when the main model is overloaded or failing, so he stays
+        # in the agent with his tools instead of dropping to the legacy LLM.
+        self.fallback_model = fallback_model
+        # A new session started within this many seconds of the last one closing
+        # resumes it (0 or None: always start fresh). The last session id and
+        # when it closed are kept in state_path (JSON) across service restarts.
+        self.resume_within = resume_within or 0
+        self.state_path = state_path
+        self.last_session_id = None
+        self.last_session_end = 0.0
+        self._load_state()
         self.spent_today = 0.0
         self._spent_day = datetime.date.today()
+        # Running total the current connection has reported so far (see _add_cost)
+        self._session_cost = 0.0
+        self._session_id = None
+        # when the conversation this connection resumed had ended (None: fresh)
+        self._resumed_end = None
         self.va = None
         self._client = None
         self._mcp_names = set()
@@ -191,6 +216,53 @@ class AgentBrain:
         self._read_roots = [os.path.expanduser(f"~{user}/.claude/skills")] if user else []
         self._loop = asyncio.new_event_loop()
         threading.Thread(target=self._loop.run_forever, daemon=True).start()
+
+    # -- resume state ---------------------------------------------------------
+
+    def _load_state(self):
+        if not self.state_path:
+            return
+        try:
+            with open(self.state_path, encoding="utf-8") as f:
+                data = json.load(f)
+            sid, end = data.get("session_id"), data.get("ended")
+            if isinstance(sid, str) and sid and isinstance(end, (int, float)):
+                self.last_session_id, self.last_session_end = sid, float(end)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"(agente: no se pudo leer {self.state_path}: {e})")
+
+    def _save_state(self):
+        if not self.state_path:
+            return
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.state_path)), exist_ok=True)
+            tmp = self.state_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"session_id": self.last_session_id, "ended": self.last_session_end}, f)
+            os.replace(tmp, self.state_path)
+        except Exception as e:
+            print(f"(agente: no se pudo guardar {self.state_path}: {e})")
+
+    def _remember_session(self, session_id):
+        self.last_session_id = session_id
+        self.last_session_end = time.time()
+        self._save_state()
+
+    def _forget_session(self):
+        self.last_session_id = None
+        self.last_session_end = 0.0
+        self._save_state()
+
+    def resume_id(self, now=None):
+        """The session to resume, or None when there is none or it is too old."""
+        if not self.last_session_id or not self.resume_within:
+            return None
+        now = time.time() if now is None else now
+        if now - self.last_session_end < self.resume_within:
+            return self.last_session_id
+        return None
 
     def attach(self, va):
         self.va = va
@@ -204,10 +276,11 @@ class AgentBrain:
         few seconds to start), so it is ready by the time the question is heard."""
         asyncio.run_coroutine_threadsafe(self._connect(system_prompt), self._loop)
 
-    def ask(self, text, system_prompt):
-        """Yield the reply's text as it streams (tool calls run in between)."""
+    def ask(self, text, system_prompt, image_path=None):
+        """Yield the reply's text as it streams (tool calls run in between).
+        ``image_path`` (JPEG) is sent with the question, for visual ones."""
         chunks = queue.Queue()
-        asyncio.run_coroutine_threadsafe(self._ask(text, system_prompt, chunks), self._loop)
+        asyncio.run_coroutine_threadsafe(self._ask(text, system_prompt, chunks, image_path), self._loop)
         while (chunk := chunks.get()) is not _END:
             if isinstance(chunk, BaseException):
                 raise chunk
@@ -225,7 +298,7 @@ class AgentBrain:
         with open(self.mcp_config) as f:
             return json.load(f).get("mcpServers", {})
 
-    def _options(self, system_prompt):
+    def _options(self, system_prompt, resume=None):
         external = self._external_mcp()
         # Load every tool up front: deferring MCP tools behind ToolSearch costs
         # an extra model turn, which is dead air when the answer is spoken.
@@ -241,10 +314,17 @@ class AgentBrain:
         kwargs = {}
         if self.max_budget_usd is not None:
             kwargs["max_budget_usd"] = self.max_budget_usd
+        if self.fallback_model:
+            kwargs["fallback_model"] = self.fallback_model
+        if resume:
+            kwargs["resume"] = resume
         return ClaudeAgentOptions(
             model=self.model,
             effort=self.effort,
-            system_prompt=system_prompt,
+            # snapshot False: a resumed session gets the prompt rebuilt with the
+            # memory learned since, instead of the one it recorded when it began
+            # (needs Claude Code CLI 2.1.257+, bundled with claude-agent-sdk 0.2.153+).
+            system_prompt={"type": "custom", "prompt": system_prompt, "snapshot": False},
             cwd=self.workspace,
             user=self.user,
             env=env,
@@ -252,8 +332,14 @@ class AgentBrain:
             # A hook, not can_use_tool: allow rules in settings files approve a
             # tool before can_use_tool is asked, but every call passes the hook.
             # dontAsk denies whatever the hook doesn't decide; nobody can answer.
-            hooks={"PreToolUse": [HookMatcher(hooks=[self._gate])]},
+            hooks={
+                "PreToolUse": [HookMatcher(hooks=[self._gate])],
+                # date, time and battery with every message, not in the system prompt
+                "UserPromptSubmit": [HookMatcher(hooks=[self._turn_context])],
+                "PreCompact": [HookMatcher(hooks=[self._on_compact])],
+            },
             permission_mode="dontAsk",
+            stderr=self._stderr,
             skills=self.skills,
             include_partial_messages=True,
             max_turns=self.max_turns,
@@ -276,19 +362,65 @@ class AgentBrain:
             decision["permissionDecisionReason"] = reason
         return {"hookSpecificOutput": decision}
 
+    async def _turn_context(self, hook_input, tool_use_id, context):
+        """UserPromptSubmit: the current date, time and battery ride along with
+        every message, so they are right on every turn of a long or resumed
+        session and the system prompt stays byte-stable for the cache."""
+        text = ""
+        try:
+            if self.va is not None:
+                text = await asyncio.to_thread(self.va.turn_context)
+        except Exception as e:
+            print(f"(agente: contexto del turno falló: {e})")
+        if not text:
+            return {}
+        return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}
+
+    async def _on_compact(self, hook_input, tool_use_id, context):
+        print(f"(agente: compactando la sesión, trigger={hook_input.get('trigger')})", flush=True)
+        return {}
+
+    @staticmethod
+    def _stderr(line):
+        line = (line or "").strip()
+        if line:
+            print(f"(agente cli: {line})", flush=True)
+
     async def _connect(self, system_prompt):
         self._connecting = self._connecting or asyncio.Lock()
         async with self._connecting:
             if self._client is not None:
+                # The next session is prewarmed right after a conversation ends,
+                # so at connect time the resume is always inside the window; check
+                # again now, at the next wake word, so a long gap starts fresh.
+                if (self._resumed_end is not None
+                        and time.time() - self._resumed_end >= self.resume_within):
+                    print("(agente: la sesión retomada ya es vieja; empiezo una nueva)")
+                    await self._disconnect(remember=False)
+                    self._forget_session()
+                else:
+                    return
+            resume = self.resume_id()
+            for attempt in (resume, None) if resume else (None,):
+                options, self._mcp_names = self._options(system_prompt, resume=attempt)
+                client = ClaudeSDKClient(options)
+                try:
+                    await client.connect()
+                except Exception as e:
+                    if attempt:
+                        # the transcript may be gone or unreadable: start fresh instead
+                        print(f"(agente: no pude retomar la sesión {attempt}: {e})")
+                        self._forget_session()
+                        continue
+                    print(f"(agente: no arrancó: {e})")
+                    return
+                if attempt:
+                    print(f"(agente: retomo la sesión {attempt})")
+                self._client = client
+                self._session_cost = 0.0
+                self._session_id = attempt
+                self._resumed_end = self.last_session_end if attempt else None
                 return
-            options, self._mcp_names = self._options(system_prompt)
-            client = ClaudeSDKClient(options)
-            try:
-                await client.connect()
-            except Exception as e:
-                print(f"(agente: no arrancó: {e})")
-                return
-            self._client = client
 
     def _roll_day(self):
         today = datetime.date.today()
@@ -296,11 +428,50 @@ class AgentBrain:
             self._spent_day = today
             self.spent_today = 0.0
 
-    def _add_cost(self, cost):
+    def _add_cost(self, total):
+        """``total`` is what a ResultMessage reports. ClaudeSDKClient runs in
+        streaming input mode, where ``total_cost_usd`` is the running total of
+        the whole connection so far, not this turn's cost (Agent SDK docs, "Track
+        cost and usage" -> streaming input mode), so only the increase since
+        the previous result counts. A drop means the CLI reset its total (a new
+        connection, or a /clear): start over from it. Returns this turn's cost."""
         self._roll_day()
-        self.spent_today += cost
+        turn = total - self._session_cost if total >= self._session_cost else total
+        self._session_cost = total
+        self.spent_today += turn
+        return turn
 
-    async def _ask(self, text, system_prompt, chunks):
+    @staticmethod
+    def _image_block(image_path):
+        """Base64 image block for a JPEG, or None if it cannot be read."""
+        try:
+            with open(image_path, "rb") as f:
+                data = base64.standard_b64encode(f.read()).decode()
+        except Exception as e:
+            print(f"(agente: sin foto para la pregunta: {e})")
+            return None
+        return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}}
+
+    @staticmethod
+    def user_message(text, image_block=None):
+        """The message dict ClaudeSDKClient.query builds for a plain string, with
+        the photo (if any) ahead of the text so a visual question needs no look call."""
+        content = [image_block, {"type": "text", "text": text}] if image_block else text
+        return {"type": "user", "message": {"role": "user", "content": content},
+                "parent_tool_use_id": None, "session_id": "default"}
+
+    async def _query(self, text, image_path):
+        block = self._image_block(image_path) if image_path else None
+        if block is None:
+            await self._client.query(text)
+            return
+
+        async def one():
+            yield self.user_message(text, block)
+
+        await self._client.query(one())
+
+    async def _ask(self, text, system_prompt, chunks, image_path=None):
         try:
             self._roll_day()
             if self.daily_budget_usd is not None and self.spent_today >= self.daily_budget_usd:
@@ -310,7 +481,7 @@ class AgentBrain:
             await self._connect(system_prompt)
             if self._client is None:
                 raise RuntimeError("the agent session did not start")
-            await self._client.query(text)
+            await self._query(text, image_path)
             async for msg in self._client.receive_response():
                 if isinstance(msg, StreamEvent) and msg.parent_tool_use_id is None:
                     ev = msg.event
@@ -320,8 +491,9 @@ class AgentBrain:
                         # a new text block after a tool call: keep sentences apart
                         chunks.put(" ")
                 elif isinstance(msg, ResultMessage):
-                    cost = msg.total_cost_usd or 0
-                    self._add_cost(cost)
+                    if getattr(msg, "session_id", None):
+                        self._session_id = msg.session_id
+                    cost = self._add_cost(msg.total_cost_usd or 0)
                     if msg.subtype == "error_max_budget_usd":
                         print("(agente: tope de gasto de la conversación alcanzado)")
                     elif msg.is_error:
@@ -334,9 +506,14 @@ class AgentBrain:
         finally:
             chunks.put(_END)
 
-    async def _disconnect(self):
+    async def _disconnect(self, remember=True):
         client, self._client = self._client, None
         if client is not None:
+            if remember and self._session_id:
+                self._remember_session(self._session_id)
+            self._session_id = None
+            self._session_cost = 0.0
+            self._resumed_end = None
             try:
                 await client.disconnect()
             except Exception as e:

@@ -110,6 +110,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.battery_low_volts = battery_low_volts
         self.battery_warning = battery_warning
         self._last_battery_warning = 0.0
+        self._last_volts = None   # from the last _report_battery (wake word, start-up)
         # "find <object>": camera + vision model to spot it, sonar to stop short (seeker.py)
         self.locator = locator
         self.sonar = sonar
@@ -215,16 +216,31 @@ class VoiceActiveCrawler(VoiceAssistant):
             msgs = self.llm.messages
             history = [m for m in msgs if m is not self._system_msg][-(self._history_limit - 1):]
             msgs[:] = [self._system_msg] + history
-            self._system_msg["content"] = (
-                self.instructions + self.memory.prompt_section() + self._ahora_section()
-            )
+            # With the agent brain the date, time and battery come with every
+            # message (turn_context, via its UserPromptSubmit hook), so the prompt
+            # stays byte-stable across sessions for the prompt cache. The legacy
+            # LLM has no hooks and keeps the section here.
+            ahora = "" if self.brain is not None else self._ahora_section()
+            self._system_msg["content"] = self.instructions + self.memory.prompt_section() + ahora
 
-    def _ahora_section(self):
+    def _ahora_line(self):
         now = datetime.datetime.now()
         dia = _WEEKDAYS_ES[now.weekday()]
         mes = _MONTHS_ES[now.month - 1]
-        return (f"\n## Ahora\nHoy es {dia} {now.day} de {mes} de {now.year}, "
-                f"{now.hour:02d}:{now.minute:02d}.\n")
+        return f"Hoy es {dia} {now.day} de {mes} de {now.year}, {now.hour:02d}:{now.minute:02d}."
+
+    def _ahora_section(self):
+        return "\n## Ahora\n" + self._ahora_line() + "\n"
+
+    def turn_context(self):
+        """Per-turn context for the agent (its UserPromptSubmit hook): the date
+        and time, plus the battery reading from the last check if there is one.
+        No sensor is read here; this runs on every message."""
+        text = self._ahora_line()
+        v = self._last_volts
+        if v is not None:
+            text += f" Pila: {v:.2f} V" + (" (baja)." if v < self.battery_low_volts else ".")
+        return text
 
     # Spanish (and a few loose English) names the LLM may emit -> ACTION_MAP keys
     ACTION_ALIASES = {
@@ -321,6 +337,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         self._action_running = False
         # a conversation cut short by Ctrl-C: learn from it before exiting
         transcript, self._transcript = self._transcript, []
+        self._log_conversation(transcript)
         self.memory.learn(transcript)
         self.crawler.do_action("sit", speed=50)
 
@@ -480,7 +497,17 @@ class VoiceActiveCrawler(VoiceAssistant):
         to the legacy LLM if nothing was spoken yet, or speak an apology."""
         state = {}
         try:
-            response = self.brain.ask(text, self._system_msg["content"])
+            # a visual question (disable_image False, see _wants_image) takes a
+            # frame along, so he answers from it instead of spending a look call
+            image_path = None
+            if self.with_image and not disable_image:
+                image_path = "./img_input.jpeg"
+                try:
+                    self.capture_image(image_path)
+                except Exception as e:
+                    print(f"(sin foto: {e})")
+                    image_path = None
+            response = self.brain.ask(text, self._system_msg["content"], image_path=image_path)
             return self._stream_to_speech(response, pipeline, state)[0]
         except Exception as e:
             spoken = state.get("spoken", False)
@@ -657,6 +684,7 @@ class VoiceActiveCrawler(VoiceAssistant):
                 except Exception as e:
                     print(f"(agente: cierre falló: {e})")
             if transcript:
+                self._log_conversation(transcript)
                 try:
                     self.memory.learn(transcript)
                 except Exception as e:
@@ -668,6 +696,17 @@ class VoiceActiveCrawler(VoiceAssistant):
                     self._idle.set()
 
         threading.Thread(target=finish, daemon=True).start()
+
+    def _log_conversation(self, transcript):
+        """Keep the conversation word for word (memory/transcripts/), so recall
+        can find what was actually said, not just the one-line daily note."""
+        log = getattr(self.memory, "log_conversation", None)
+        if not transcript or log is None:
+            return
+        try:
+            log(transcript)
+        except Exception as e:
+            print(f"(memoria: no se pudo guardar la plática: {e})")
 
     def _prewarm(self):
         """Open the agent's next session ahead of time (no-op without a brain)."""
@@ -711,6 +750,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         v = self.battery_voltage()
         if v is None:
             return
+        self._last_volts = v
         if startup:
             print(f"Batería: {v:.2f} V")
         if v < self.battery_low_volts and time.time() - self._last_battery_warning > 600:

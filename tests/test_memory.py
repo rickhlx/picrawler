@@ -3,6 +3,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "examples"))
 
@@ -122,6 +123,88 @@ class MemoryToolTests(unittest.TestCase):
         notes = self.mem.recent(days=1)
         self.assertTrue(any("Reciente" in n for n in notes))
         self.assertFalse(any("Muy vieja" in n for n in notes))
+
+    # ── verbatim transcripts ─────────────────────────────────────────
+
+    def _log(self, turns, when="2026-09-20 18:05"):
+        self.mem.log_conversation(turns, when=datetime.strptime(when, "%Y-%m-%d %H:%M"))
+
+    def test_log_conversation_writes_heading_and_both_labels(self):
+        self._log([("user", "Acuérdate que el dentista es el jueves"), ("assistant", "Órale, apuntado.")])
+        text = self._read(os.path.join("transcripts", "2026-09-20.md"))
+        self.assertIn("# 2026-09-20", text)
+        self.assertIn("## 18:05", text)
+        self.assertIn("- Usuario: Acuérdate que el dentista es el jueves", text)
+        self.assertIn("- the robot: Órale, apuntado.", text)
+
+    def test_log_conversation_uses_robot_name_and_flattens_newlines(self):
+        mem = memory.Memory(self.path, llm=None, name="Petronilo")
+        mem.log_conversation([("user", "hola\n¿qué haces?"), ("assistant", "nada,\naquí nomás")],
+                             when=datetime(2026, 9, 20, 9, 0))
+        text = self._read(os.path.join("transcripts", "2026-09-20.md"))
+        self.assertIn("- Usuario: hola ¿qué haces?\n", text)
+        self.assertIn("- Petronilo: nada, aquí nomás\n", text)
+
+    def test_log_conversation_same_day_appends_second_block(self):
+        self._log([("user", "primera plática"), ("assistant", "sí")], when="2026-09-20 10:00")
+        self._log([("user", "segunda plática"), ("assistant", "también")], when="2026-09-20 11:30")
+        text = self._read(os.path.join("transcripts", "2026-09-20.md"))
+        self.assertEqual(text.count("# 2026-09-20\n"), 1)
+        self.assertIn("## 10:00", text)
+        self.assertIn("## 11:30", text)
+        self.assertLess(text.index("primera"), text.index("segunda"))
+
+    def test_log_conversation_skips_empty_and_assistant_only(self):
+        self.mem.log_conversation([])
+        self.mem.log_conversation([("assistant", "hola"), ("user", "   ")])
+        self.assertFalse(os.path.exists(os.path.join(self.path, "transcripts")))
+
+    def test_search_finds_transcript_line_with_date_and_time(self):
+        self._log([("user", "El dentista es el jueves a las cuatro"), ("assistant", "va")])
+        results = self.mem.search("dentista jueves")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], "2026-09-20 18:05 Usuario: El dentista es el jueves a las cuatro")
+
+    def test_search_puts_facts_and_notes_before_transcripts(self):
+        self._log([("user", "Hablamos de gatos"), ("assistant", "miau")])
+        self.mem._append_daily("Plática sobre gatos", day="2026-09-19")
+        self.mem.add_fact("A Sofía le gustan los gatos", "user")
+        results = self.mem.search("gatos")
+        self.assertEqual(len(results), 3)
+        self.assertTrue(results[0].startswith("USER.md:"))
+        self.assertTrue(results[1].startswith("2026-09-19 "))
+        self.assertIn("Usuario: Hablamos de gatos", results[2])
+
+    def test_search_transcripts_newest_first(self):
+        self._log([("user", "perros viejos"), ("assistant", "ok")], when="2026-09-18 08:00")
+        self._log([("user", "perros de la mañana"), ("assistant", "ok")], when="2026-09-20 08:00")
+        self._log([("user", "perros de la tarde"), ("assistant", "ok")], when="2026-09-20 17:00")
+        results = self.mem.search("perros")
+        self.assertEqual([r.split(" Usuario: ")[1] for r in results],
+                         ["perros de la tarde", "perros de la mañana", "perros viejos"])
+
+    def test_search_limit_applies_across_sources(self):
+        for i in range(4):
+            self.mem.add_fact(f"Dato {i} sobre loros", "memory")
+        self._log([("user", "loros en la plática"), ("assistant", "loros, sí")])
+        results = self.mem.search("loros", limit=5)
+        self.assertEqual(len(results), 5)
+        self.assertEqual(sum(r.startswith("MEMORY.md:") for r in results), 4)
+        self.assertEqual(sum("Usuario:" in r or "the robot:" in r for r in results), 1)
+
+    def test_prune_removes_old_transcripts_keeps_recent(self):
+        mem = memory.Memory(self.path, llm=None, transcript_days=30)
+        mem.log_conversation([("user", "muy viejo"), ("assistant", "ok")], when=datetime(2026, 6, 1, 9, 0))
+        mem.log_conversation([("user", "reciente"), ("assistant", "ok")], when=datetime(2026, 9, 10, 9, 0))
+        mem.log_conversation([("user", "hoy"), ("assistant", "ok")], when=datetime(2026, 9, 20, 9, 0))
+        names = sorted(os.listdir(os.path.join(self.path, "transcripts")))
+        self.assertEqual(names, ["2026-09-10.md", "2026-09-20.md"])
+
+    def test_prompt_section_excludes_transcripts(self):
+        self._log([("user", "palabra secreta xilófono"), ("assistant", "ok")])
+        self.mem.add_fact("Un dato cualquiera", "memory")
+        self.assertNotIn("xilófono", self.mem.prompt_section())
+        self.assertNotIn("Usuario:", self.mem.prompt_section())
 
     def test_learn_still_works_unchanged(self):
         # learn() with no llm and no user turn should just no-op, not raise
