@@ -8,6 +8,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 
@@ -300,7 +301,7 @@ class ImageMessageTests(unittest.TestCase):
 
 class CostTests(unittest.TestCase):
     """ClaudeSDKClient is streaming input mode: ResultMessage.total_cost_usd is
-    the connection's running total, so only the increase counts."""
+    the session's running total, so only the increase counts."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -326,6 +327,79 @@ class CostTests(unittest.TestCase):
         self.assertEqual(self.brain._session_cost, 0.0)
         self.assertAlmostEqual(self.brain._add_cost(0.10), 0.10)
         self.assertAlmostEqual(self.brain.spent_today, 0.30)
+
+
+class ResumeCostTests(unittest.TestCase):
+    """A resumed session carries on counting from what it already spent, so the
+    running total has to be seeded from it rather than from zero."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        SDK.ClaudeSDKClient.fail_resume = False
+        SDK.ClaudeSDKClient.instances.clear()
+
+    def test_resume_charges_only_the_new_spend(self):
+        brain = make_brain(self.tmp, resume_within=600)
+        brain._remember_session("s1", 0.50)
+        run(brain, brain._connect("prompt"))
+        self.assertAlmostEqual(brain._session_cost, 0.50)
+        # the resumed session reports its 0.50 of history plus this turn's 0.07
+        self.assertAlmostEqual(brain._add_cost(0.57), 0.07)
+        self.assertAlmostEqual(brain.spent_today, 0.07)
+
+    def test_fresh_session_still_starts_at_zero(self):
+        brain = make_brain(self.tmp)
+        run(brain, brain._connect("prompt"))
+        self.assertAlmostEqual(brain._session_cost, 0.0)
+        self.assertFalse(brain._cost_unknown)
+        self.assertAlmostEqual(brain._add_cost(0.07), 0.07)
+
+    def test_unrecorded_spend_takes_the_first_report_as_baseline(self):
+        # an agent_session.json written before the spend was tracked
+        with open(os.path.join(self.tmp, "agent_session.json"), "w", encoding="utf-8") as f:
+            json.dump({"session_id": "s1", "ended": time.time()}, f)
+        brain = make_brain(self.tmp, resume_within=600)
+        self.assertIsNone(brain.last_session_cost)
+        run(brain, brain._connect("prompt"))
+        self.assertTrue(brain._cost_unknown)
+        # rather than bill the whole history again, take it as the baseline
+        self.assertAlmostEqual(brain._add_cost(2.00), 0.0)
+        self.assertAlmostEqual(brain._add_cost(2.06), 0.06)
+        self.assertAlmostEqual(brain.spent_today, 0.06)
+
+    def test_repeated_resumes_do_not_compound(self):
+        """Replays the totals one real afternoon logged: five conversations on
+        one resumed session reporting 0.412, 0.974, 1.204, 1.682 and 2.222.
+        Charging each first report in full billed $6.66 and tripped the daily
+        cap, while the session had really spent $2.222."""
+        brain = make_brain(self.tmp, resume_within=3600)
+        run(brain, brain._connect("prompt"))
+        for total in (0.412, 0.974, 1.204, 1.682, 2.222):
+            brain._session_id = "s-resume"  # as a ResultMessage would set it
+            brain._add_cost(total)
+            brain.end()  # remembers the session and what it has spent
+            run(brain, brain._connect("prompt"))
+            self.assertEqual(brain.last_session_id, "s-resume")
+        self.assertAlmostEqual(brain.spent_today, 2.222, places=3)
+
+    def test_disconnect_records_the_spend_in_the_state_file(self):
+        brain = make_brain(self.tmp, resume_within=600)
+        run(brain, brain._connect("prompt"))
+        brain._session_id = "s1"
+        brain._add_cost(0.42)
+        brain.end()
+        with open(os.path.join(self.tmp, "agent_session.json"), encoding="utf-8") as f:
+            self.assertAlmostEqual(json.load(f)["cost"], 0.42)
+
+    def test_budget_cap_is_raised_by_the_resumed_spend(self):
+        brain = make_brain(self.tmp, resume_within=600, max_budget_usd=0.50)
+        brain._remember_session("s1", 1.70)
+        options, _ = brain._options("SOUL", resume="s1")
+        # the cap bounds this conversation, not everything the session has spent
+        self.assertAlmostEqual(options.kwargs["max_budget_usd"], 2.20)
+        fresh, _ = brain._options("SOUL")
+        self.assertAlmostEqual(fresh.kwargs["max_budget_usd"], 0.50)
 
 
 if __name__ == "__main__":
