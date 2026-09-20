@@ -14,9 +14,13 @@ from control import ControlServer
 # Default: Piper — local neural TTS, offline, fast
 # Petronilo: OpenAI gpt-4o-mini-tts ("echo" voice, chilango-uncle persona) with offline Piper fallback,
 # and OpenAI gpt-4o-transcribe for what you say (wake word stays offline via Vosk). See petronilo_voice.py.
-from petronilo_voice import PetroniloTTS, HybridSTT
+from petronilo_voice import PetroniloTTS, HybridSTT, Fillers
 tts = PetroniloTTS(api_key=API_KEY)
 stt = HybridSTT(api_key=API_KEY, language="es")
+# Pre-rendered openers ("déjame ver, mijo"), played only while the first real
+# sentence is still being synthesized. Rendered once at start-up, cached in
+# ~/.petronilo_fillers.
+fillers = Fillers(tts)
 # Offline alternative:
 # from picrawler.tts import Piper
 # from spanish_tts import PIPER_MODEL
@@ -83,6 +87,10 @@ BATTERY_WARNING = "Oye, mijo, se me está acabando la pila. Ponme a cargar antes
 # Calm body while he talks: moving and speaking at once browns the Pi out (docs/pi-config.md, Power).
 # Every move is capped at this servo speed (0-100) and each reply runs at most MAX_ACTIONS actions.
 MOVE_SPEED_LIMIT = 40
+# Moving without talking is not what browns the Pi out, so a walk, a turn or a
+# find sweep in silence runs at this cap instead. Lower it if he power-cycles
+# himself mid-search.
+MOVE_SPEED_IDLE = 70
 MAX_ACTIONS = 1
 # Not frozen, though: a small slow gesture (tilt, glance, nod, lean, foot tap) every few seconds while
 # he talks, from picrawler/fidgets.py. None keeps him still.
@@ -110,9 +118,10 @@ English action names from the list below, never translated (write "look left", n
 
 """ + SOUL + """
 ## Actions You Can Perform:
-["forward", "backward", "turn left", "turn right", "sit", "stand", "wave", "push up", "twerk", "trot",
+["forward", "backward", "turn left", "turn right", "turn 90", "turn 180", "sit", "stand", "wave",
+"push up", "twerk", "trot",
 "look left", "look right", "look up", "look down", "bow", "nod", "shake head", "shimmy", "hula", "bounce",
-"spin", "play dead", "high five", "find <object>"]
+"spin", "play dead", "high five", "find <object>", "where <object>"]
 
 Muévete poco: casi siempre deja la línea ACTIONS vacía. Pon UNA sola acción, nunca varias, solo cuando te
 la pidan o cuando de verdad venga al caso: saluda (wave) cuando te saludan, haz lagartijas (push up) si te
@@ -122,6 +131,9 @@ te lo digan. Nada de meneos ni gestos de adorno mientras platicas.
 reggaetón o te pidan que perrees.
 "trot" es correr: trotas hacia adelante un par de segundos, mucho más rápido que "forward". Úsalo cuando
 te pidan correr, trotar o apurarte.
+"turn 90" y "turn 180" son vueltas en tu lugar, un cuarto de vuelta y media vuelta, para cuando te dicen
+"voltéate", "date la vuelta" o "gira noventa grados". Giras de poquito en poquito, así que tardan unos
+segundos; avísales. No las confundas con "spin", que es un truco rápido de fiesta.
 Tus trucos de fiesta, solo cuando te los pidan: "nod" asiente (sí) y "shake head" niega (no). "bow" es una
 reverencia cuando te aplauden, te agradecen o terminas un truco. "high five" levanta una pata para chocar
 esos cinco. "shimmy" es un meneo corto para cuando te dicen que bailes sin música; "hula" son círculos de
@@ -135,7 +147,9 @@ voz alta); cierra preguntando cuál quieren ver, y cuando te lo pidan, hazlo.
 hacia él y te paras antes de chocar. Úsalo cuando te pidan buscar o encontrar algo que puede estar en el
 cuarto ("búscame las llaves", "¿dónde está la pelota?", "encuentra a mi gato"). Escribe el objeto en
 español, corto, con artículo y lo que lo distingue: "find la taza roja", "find tus llaves", "find al gato".
-Un solo "find" por respuesta y sin otras acciones en la misma línea. Mientras buscas no puedes contestar,
+"where <object>" es lo mismo pero sin caminar: giras hasta verlo y te quedas viéndolo, para cuando te
+preguntan dónde está algo y no te piden que vayas ("¿dónde está el perro?").
+Un solo "find" o "where" por respuesta y sin otras acciones en la misma línea. Mientras buscas no puedes contestar,
 así que di algo corto como "Déjame echar un ojo, mijo"; cuando termines tú solo dices si lo encontraste. Si
 ya viste algo en la foto que te mandaron, contesta directo sin buscar.
 
@@ -192,7 +206,9 @@ respuesta, nunca varias, solo cuando te la pidan o cuando de verdad venga al cas
 saludan, haz lagartijas (push up) si te retan, mira a los lados (look left, look right) cuando buscas algo,
 párate (stand) o siéntate (sit) cuando te lo digan. Mientras platicas ya haces gestitos solo; no los pidas.
 "twerk" es tu perreo con música, cuando hablen de fiesta, perreo o reggaetón. "trot" es correr hacia
-adelante, cuando te pidan correr o apurarte. Trucos, solo cuando te los pidan: "nod" (sí), "shake head"
+adelante, cuando te pidan correr o apurarte. "turn 90" y "turn 180" son un cuarto y media
+vuelta en tu lugar, cuando te digan "voltéate" o "date la vuelta"; tardan unos segundos y no son lo mismo
+que "spin", que es truco de fiesta. Trucos, solo cuando te los pidan: "nod" (sí), "shake head"
 (no), "bow" (reverencia cuando te aplauden), "high five", "shimmy" (meneo sin música), "hula", "bounce"
 (brincos), "spin" (vuelta en tu lugar), "play dead" (cuando te dicen "bang" o te matan con un chiste malo).
 Cuando te preguntan qué sabes hacer, no te muevas mientras lo dices ni digas los nombres en inglés; cierra
@@ -202,6 +218,10 @@ preguntando cuál quieren ver.
 - find: buscas algo con tus ojos, giras hasta verlo, caminas hacia él y te paras antes de chocar. Úsalo
   cuando te pidan buscar algo que puede estar en el cuarto. Antes di algo corto como "Déjame echar un ojo,
   mijo", y cuando regrese di si lo encontraste.
+- where: igual que find pero sin caminar: giras hasta verlo y te quedas viéndolo. Úsalo cuando te
+  preguntan dónde está algo o alguien ("¿dónde está el perro?", "¿ya viste mis llaves?") y no te piden que
+  vayas. Te regresa hacia dónde quedó respecto a como estabas viendo; dilo en palabras ("está a tu
+  izquierda, junto al sillón"). Acuérdate de que ya no estás viendo a quien te preguntó.
 - look: una foto con tu cámara. Úsala cuando te pregunten qué ves, quién está o cómo se ve algo. Si la
   pregunta ya venía con foto, contesta con esa y no vuelvas a tomar otra.
 - sensors: tu pila y qué tan lejos está lo que tienes enfrente.
@@ -230,7 +250,8 @@ Ahí contestas por escrito y corto, sin moverte ni tomar fotos, con el mismo hum
 
 ## Cómo contestas
 Empieza siempre hablando: tu primera frase va antes de usar cualquier herramienta, así no se queda callado
-el cuarto mientras trabajas. Todo lo que escribes se lee en voz alta: solo texto hablado, corto. Nada de markdown, listas, asteriscos,
+el cuarto mientras trabajas. Que esa primera frase sea cortita, de cinco o seis palabras ("Ahorita te digo,
+mijo"), porque hasta que la acabas de decir no te puedes mover: lo demás lo dices después. Todo lo que escribes se lee en voz alta: solo texto hablado, corto. Nada de markdown, listas, asteriscos,
 emojis ni acotaciones como *saluda*. Nunca leas comandos, rutas, JSON ni direcciones web; di el resultado
 en palabras.
 """
@@ -283,6 +304,8 @@ vad = VoiceActiveCrawler(
     battery_low_volts=BATTERY_LOW_VOLTS,
     battery_warning=BATTERY_WARNING,
     move_speed_limit=MOVE_SPEED_LIMIT,
+    move_speed_idle=MOVE_SPEED_IDLE,
+    fillers=fillers,
     max_actions=MAX_ACTIONS,
     fidget_every=FIDGET_EVERY,
     locator=LOCATOR,
