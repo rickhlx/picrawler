@@ -286,6 +286,21 @@ class AgentBrain:
                 raise chunk
             yield chunk
 
+    def interrupt(self):
+        """Cut the turn in progress (barge-in): the CLI stops the model and
+        the pending ``ask`` ends with a result. Non-blocking; safe from any
+        thread; a no-op without an open session."""
+        asyncio.run_coroutine_threadsafe(self._interrupt(), self._loop)
+
+    async def _interrupt(self):
+        client = self._client
+        if client is None:
+            return
+        try:
+            await client.interrupt()
+        except Exception as e:
+            print(f"(agente: no pude interrumpir: {e})")
+
     def end(self):
         """Close the conversation's session; the next ask starts a new one."""
         asyncio.run_coroutine_threadsafe(self._disconnect(), self._loop).result(timeout=30)
@@ -311,6 +326,10 @@ class AgentBrain:
         # The find tool can take over a minute; the CLI's default MCP tool
         # timeout is shorter than that.
         env["MCP_TOOL_TIMEOUT"] = str(MCP_TOOL_TIMEOUT_MS)
+        # Conversations are short and often more than five minutes apart, so the
+        # default cache TTL expires between them; the one-hour TTL keeps the
+        # (now byte-stable) system prompt cached from one wake word to the next.
+        env["ENABLE_PROMPT_CACHING_1H"] = "1"
         kwargs = {}
         if self.max_budget_usd is not None:
             kwargs["max_budget_usd"] = self.max_budget_usd
@@ -336,6 +355,9 @@ class AgentBrain:
                 "PreToolUse": [HookMatcher(hooks=[self._gate])],
                 # date, time and battery with every message, not in the system prompt
                 "UserPromptSubmit": [HookMatcher(hooks=[self._turn_context])],
+                # a walk or a heavy move drains the pack: fresh battery reading after it
+                "PostToolUse": [HookMatcher(matcher=f"mcp__{ROBOT}__(find|move)",
+                                            hooks=[self._after_body_tool])],
                 "PreCompact": [HookMatcher(hooks=[self._on_compact])],
             },
             permission_mode="dontAsk",
@@ -375,6 +397,23 @@ class AgentBrain:
         if not text:
             return {}
         return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}}
+
+    async def _after_body_tool(self, hook_input, tool_use_id, context):
+        """PostToolUse for find/move: read the battery now (a quick ADC read),
+        refresh the crawler's cached reading and tell the model."""
+        try:
+            if self.va is None:
+                return {}
+            v = await asyncio.to_thread(self.va.battery_voltage)
+        except Exception as e:
+            print(f"(agente: lectura de pila falló: {e})")
+            return {}
+        if v is None:
+            return {}
+        self.va._last_volts = v
+        low = " (baja)" if v < getattr(self.va, "battery_low_volts", 0) else ""
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUse",
+                                       "additionalContext": f"Pila ahora: {v:.2f} V{low}."}}
 
     async def _on_compact(self, hook_input, tool_use_id, context):
         print(f"(agente: compactando la sesión, trigger={hook_input.get('trigger')})", flush=True)
@@ -427,6 +466,12 @@ class AgentBrain:
         if today != self._spent_day:
             self._spent_day = today
             self.spent_today = 0.0
+
+    def add_external_cost(self, cost):
+        """Count spend made outside the conversation session (the memory
+        extractor's one-shot query) toward today's budget."""
+        self._roll_day()
+        self.spent_today += float(cost or 0)
 
     def _add_cost(self, total):
         """``total`` is what a ResultMessage reports. ClaudeSDKClient runs in

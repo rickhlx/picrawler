@@ -17,7 +17,100 @@ _MONTHS_ES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "a
               "septiembre", "octubre", "noviembre", "diciembre")
 
 
+class BargeIn:
+    """Listens for the wake word while he speaks, so "compa" cuts him off.
+
+    Runs on its own daemon thread with the offline recogniser only
+    (``stt.listen(stream=False)`` is Vosk; the paid transcription is never
+    called). The mic is a USB capture device separate from the HAT speaker
+    (docs/pi-config.md, Audio), so it can stay open during playback. What it
+    hears is mostly his own voice, so only the wake word itself counts, as a
+    whole word, none of the loose WAKE_ALIASES ("com", "compra").
+
+    ``stop()`` must run before anyone else opens the mic (the follow-up
+    ``listen()``): it sets ``stt.stop_listening_event`` until the thread has
+    left ``listen()`` and joined, since ``listen()`` clears that event when
+    it starts and a single set could land in the gap between two calls."""
+
+    def __init__(self, stt, wake_words, on_hit, norm=lambda t: " ".join((t or "").lower().split())):
+        self.stt = stt
+        self.norm = norm
+        self.patterns = [re.compile(r"\b" + re.escape(norm(w)) + r"\b")
+                         for w in (wake_words or []) if norm(w)]
+        self.on_hit = on_hit
+        self.hit = False
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self.hit = False
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._run, name="barge_in", daemon=True)
+        self._thread.start()
+
+    def stop(self, timeout=3.0):
+        """Stop listening and release the mic; blocks until the thread is done
+        (or ``timeout``)."""
+        self._stop.set()
+        t, self._thread = self._thread, None
+        if t is None or not t.is_alive():
+            return
+        deadline = time.time() + timeout
+        while t.is_alive() and time.time() < deadline:
+            try:
+                self.stt.stop_listening()
+            except Exception:
+                pass
+            t.join(0.2)
+        if t.is_alive():
+            print("(interrupción: el micrófono no se soltó a tiempo)")
+            return
+        # drop whatever of his own voice the recogniser was still chewing on
+        rec = getattr(self.stt, "recognizer", None)
+        if rec is not None and callable(getattr(rec, "Reset", None)):
+            try:
+                rec.Reset()
+            except Exception:
+                pass
+
+    def matches(self, text):
+        heard = self.norm(text)
+        return bool(heard) and any(p.search(heard) for p in self.patterns)
+
+    def _run(self):
+        # after a keyboard trigger the library's wake-word thread may still be
+        # closing the mic: let it finish rather than open the device twice
+        wake_thread = getattr(self.stt, "wake_word_thread", None)
+        if wake_thread is not None and wake_thread is not threading.current_thread():
+            try:
+                wake_thread.join(2.0)
+            except RuntimeError:
+                pass
+        while not self._stop.is_set():
+            try:
+                text = self.stt.listen(stream=False)
+            except Exception as e:
+                print(f"(interrupción: el micrófono falló: {e})")
+                return
+            if self._stop.is_set():
+                return
+            if text and self.matches(text):
+                self.hit = True
+                print("\n(me interrumpieron)", flush=True)
+                try:
+                    self.on_hit()
+                except Exception as e:
+                    print(f"(interrupción falló: {e})")
+                return
+
+
 class VoiceActiveCrawler(VoiceAssistant):
+
+    # how long he listens for the new question after being interrupted when
+    # follow_up_seconds is off
+    BARGE_IN_LISTEN_SECONDS = 8
 
     ACTION_MAP = {
         "forward":      ("do_action", {"motion_name": "forward", "step": 1, "speed": 70}),
@@ -52,7 +145,7 @@ class VoiceActiveCrawler(VoiceAssistant):
                  fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None,
                  brain_error_phrase="Se me fue la señal, mijo. Pregúntame otra vez en un ratito.",
                  budget_phrase="Ya gasté mi domingo de hoy, mijo. Mañana seguimos platicando.",
-                 scheduler=None, notify=None, task_wait_seconds=600,
+                 scheduler=None, notify=None, task_wait_seconds=600, barge_in=False,
                  **kwargs):
         self.action_queue = queue.Queue()
         # Autonomous turns (reminders, tasks from a control socket or Telegram) outside
@@ -143,6 +236,16 @@ class VoiceActiveCrawler(VoiceAssistant):
         # (accent-insensitive, wake phrase anywhere in the transcript) instead
         # of the library's exact whole-transcript comparison.
         self.stt.heard_wake_word = self._fuzzy_heard_wake_word
+        # Barge-in (opt-in): while he speaks in a conversation, a BargeIn thread
+        # listens for the exact wake word; a hit cancels the speech, cuts the
+        # brain's turn and _follow_up listens for the new question right away.
+        self._interrupted = False
+        self._barge = None
+        if barge_in:
+            if callable(getattr(self.stt, "listen", None)) and callable(getattr(self.stt, "stop_listening", None)):
+                self._barge = BargeIn(self.stt, self.wake_word, self._on_barge_in, norm=self._norm_text)
+            else:
+                print("(interrupción por voz desactivada: el STT no tiene reconocedor local)")
         if brain is not None:
             brain.attach(self)
 
@@ -194,6 +297,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         with self._task_lock:
             self._idle.clear()
             self._conversation += 1
+        self._interrupted = False
         if self.brain is not None:
             self._refresh_system_prompt()
             self.brain.start(self._system_msg["content"])
@@ -326,7 +430,7 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def after_say(self, text):
         # round wrap-up (wait for actions, sit) happens in on_finish_a_round
-        self._talking.clear()
+        self._stop_talking()
 
     def _finish_round_motion(self):
         self._wait_actions_done()
@@ -473,7 +577,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         finally:
             pipeline.finish()
             self._pipeline = None
-            self._talking.clear()
+            self._stop_talking()
         return result
 
     def _think_agent_streaming(self, text, disable_image):
@@ -489,7 +593,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         finally:
             pipeline.finish()
             self._pipeline = None
-            self._talking.clear()
+            self._stop_talking()
         return result
 
     def _ask_agent_streaming(self, text, pipeline, disable_image):
@@ -588,7 +692,7 @@ class VoiceActiveCrawler(VoiceAssistant):
                 finally:
                     pipeline.finish()
                     self._pipeline = None
-                    self._talking.clear()
+                    self._stop_talking()
                     self._wait_actions_done()
                     self.crawler.do_action("sit", speed=50)
             else:
@@ -907,11 +1011,20 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def _follow_up(self):
         self._finish_round_motion()
-        if not self.follow_up_seconds or not hasattr(self.stt, "follow_up_timeout"):
+        if not hasattr(self.stt, "follow_up_timeout"):
             return
         while self.running:
-            print(f"(sigo escuchando {self.follow_up_seconds}s, sin palabra clave; di 'adiós' para terminar)")
-            self.stt.follow_up_timeout = self.follow_up_seconds
+            # interrupted by the wake word: the question is coming, listen even
+            # when conversation mode is off
+            interrupted, self._interrupted = self._interrupted, False
+            seconds = self.follow_up_seconds or (self.BARGE_IN_LISTEN_SECONDS if interrupted else 0)
+            if not seconds:
+                return
+            if interrupted:
+                print("(te escucho)")
+            else:
+                print(f"(sigo escuchando {seconds}s, sin palabra clave; di 'adiós' para terminar)")
+            self.stt.follow_up_timeout = seconds
             try:
                 text = self.listen()
             finally:
@@ -978,6 +1091,28 @@ class VoiceActiveCrawler(VoiceAssistant):
         if self.fidget_every:
             self._next_fidget = time.time() + random.uniform(*self.fidget_every) / 2
         self._talking.set()
+        # only inside a conversation: during an autonomous turn the library's
+        # wake-word thread already has the mic, and the wake word works as is
+        if self._barge is not None and not self._idle.is_set():
+            self._barge.start()
+
+    def _stop_talking(self):
+        self._talking.clear()
+        if self._barge is not None:
+            self._barge.stop()
+
+    def _on_barge_in(self):
+        """BargeIn heard the wake word mid-speech (runs on its thread): drop
+        the rest of the answer and the queued moves, cut the brain's turn so
+        the pending ask ends, and have _follow_up listen right away."""
+        self._interrupted = True
+        self.stop_speaking()
+        brain = self.brain
+        if brain is not None and callable(getattr(brain, "interrupt", None)):
+            try:
+                brain.interrupt()
+            except Exception as e:
+                print(f"(agente: no se pudo interrumpir: {e})")
 
     def _maybe_fidget(self):
         if not self.fidget_every or not self._talking.is_set() or time.time() < self._next_fidget:

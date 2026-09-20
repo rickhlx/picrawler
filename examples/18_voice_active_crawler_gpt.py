@@ -64,6 +64,10 @@ ANSWER_ON_WAKE = "¿Qué pasó, mijo?"
 FOLLOW_UP_SECONDS = 8
 END_PHRASES = ["adiós", "adios", "ya estuvo", "hasta luego", "nos vemos", "bye"]
 FAREWELL = "Órale, ahí nos vemos, mijo. Aquí ando si me necesitas."
+# Barge-in: while he talks, saying the wake word (exactly, no near-misses) cuts him off and he listens for
+# the new question. The USB mic stays open during playback and hears mostly his own voice, so leave this
+# off if it triggers on its own (docs/pi-config.md, Audio). Untested on hardware so far.
+BARGE_IN = False
 
 # Speak sentence-by-sentence while the answer is still being generated (much less dead air)
 STREAM_SPEECH = True
@@ -163,6 +167,10 @@ AGENT_FALLBACK_MODEL = "claude-sonnet-5"
 # that he starts fresh with what the memory pass wrote down. 0 = always fresh. The last session id
 # is kept in MEMORY_DIR/agent_session.json so a service restart keeps the thread.
 AGENT_RESUME_MINUTES = 30
+# Memory extraction on Anthropic too: after each conversation Haiku picks the facts through the same CLI
+# with a JSON schema (memory_extractor.py), counted toward the daily budget. False keeps the OpenAI
+# gpt-4.1-mini extractor (memory_llm above).
+AGENT_MEMORY = True
 # Commands he may run, by name; each part of a pipeline must be one of these. Anything that can run
 # other commands (sh, python3, xargs, find -exec, env, sudo) would open the whole shell, and file readers
 # (cat, grep) get around the policy's read limits: leave them out. No curl either: the built-in WebFetch
@@ -265,6 +273,10 @@ if AGENT:
         resume_within=AGENT_RESUME_MINUTES * 60,
         state_path=os.path.join(MEMORY_DIR, "agent_session.json"),
     )
+    if AGENT_MEMORY:
+        from memory_extractor import AgentExtractor
+        memory_llm = AgentExtractor(api_key=ANTHROPIC_API_KEY, workspace=AGENT_WORKSPACE, user=AGENT_USER,
+                                    on_cost=brain.add_external_cost)
 
 vad = VoiceActiveCrawler(
     llm,
@@ -274,6 +286,7 @@ vad = VoiceActiveCrawler(
     tts=tts,
     stt=stt,
     follow_up_seconds=FOLLOW_UP_SECONDS,
+    barge_in=BARGE_IN,
     end_phrases=END_PHRASES,
     farewell=FAREWELL,
     stream_speech=STREAM_SPEECH,

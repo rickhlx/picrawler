@@ -206,6 +206,35 @@ class MemoryToolTests(unittest.TestCase):
         self.assertNotIn("xilófono", self.mem.prompt_section())
         self.assertNotIn("Usuario:", self.mem.prompt_section())
 
+    def test_learn_with_extract_json_object(self):
+        class FakeExtractor:
+            def __init__(self):
+                self.calls = []
+
+            def extract_json(self, system, user):
+                self.calls.append((system, user))
+                return {"add": [{"file": "user", "text": "Ricardo cumple el 3 de mayo"}],
+                        "update": [], "delete": [], "summary": "Hablaron del cumpleaños de Ricardo"}
+
+        ext = FakeExtractor()
+        mem = memory.Memory(self.path, llm=ext, name="Petronilo")
+        mem.learn([("user", "mi cumple es el 3 de mayo"), ("assistant", "apuntado")])
+        self.assertEqual(len(ext.calls), 1)
+        system, user = ext.calls[0]
+        self.assertIn("Petronilo", system)
+        self.assertIn("mi cumple es el 3 de mayo", user)
+        self.assertIn("Ricardo cumple el 3 de mayo", self._read("USER.md"))
+        self.assertIn("Hablaron del cumpleaños de Ricardo", mem.prompt_section())
+
+    def test_learn_with_extract_json_rejects_non_object(self):
+        class Bad:
+            def extract_json(self, system, user):
+                return ["not", "a", "dict"]
+
+        mem = memory.Memory(self.path, llm=Bad())
+        mem.learn([("user", "hola")])   # logged, not raised
+        self.assertEqual(mem.facts, [])
+
     def test_learn_still_works_unchanged(self):
         # learn() with no llm and no user turn should just no-op, not raise
         self.mem.learn([("assistant", "hola")])

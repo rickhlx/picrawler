@@ -12,7 +12,9 @@ agent memory:
         2026-09-18.md       every conversation word for word, one "## HH:MM" block each
 
 When a conversation ends, `Memory.learn(transcript)` sends the transcript and
-the stored facts to an LLM, which answers with edits (add / update / delete,
+the stored facts to an LLM (an OpenAI-shaped one from robot_hat.llm, or any
+object with `extract_json(system, user) -> dict` such as
+memory_extractor.AgentExtractor), which answers with edits (add / update / delete,
 each fact in USER.md or MEMORY.md) and a one-line summary appended to today's
 note. `prompt_section()` renders USER.md, MEMORY.md and the two most recent
 daily notes for the system prompt.
@@ -207,6 +209,15 @@ class Memory:
         stored = "\n".join(f"[{i}] ({f['file']}) {f['text']}" for i, f in enumerate(facts, 1)) or "(empty)"
         convo = "\n".join(f"{'User' if role == 'user' else self.name}: {text}" for role, text in transcript if text)
         user = f"Stored facts:\n{stored}\n\nConversation:\n{convo}"
+        # Any extractor with extract_json(system, user) -> dict works here (e.g.
+        # memory_extractor.AgentExtractor, Haiku through the Agent SDK with a JSON
+        # schema); otherwise an OpenAI-shaped LLM from robot_hat.llm.
+        extract = getattr(self.llm, "extract_json", None)
+        if callable(extract):
+            edits = extract(system, user)
+            if not isinstance(edits, dict):
+                raise ValueError(f"expected a JSON object, got {edits!r}")
+            return edits
         # chat() rather than prompt(): prompt() hides an API error behind KeyError('choices')
         self.llm.messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         data = self.llm.chat(False, response_format={"type": "json_object"}).json()

@@ -219,9 +219,39 @@ class OptionsTests(unittest.TestCase):
         brain = make_brain(self.tmp)
         options, _ = brain._options("SOUL")
         hooks = options.kwargs["hooks"]
-        self.assertEqual(set(hooks), {"PreToolUse", "UserPromptSubmit", "PreCompact"})
+        self.assertEqual(set(hooks), {"PreToolUse", "UserPromptSubmit", "PostToolUse", "PreCompact"})
         self.assertIn(brain._turn_context, hooks["UserPromptSubmit"][0].hooks)
+        self.assertEqual(hooks["PostToolUse"][0].matcher, "mcp__robot__(find|move)")
         self.assertIs(options.kwargs["stderr"], brain._stderr)
+        self.assertEqual(options.kwargs["env"]["ENABLE_PROMPT_CACHING_1H"], "1")
+
+    def test_after_body_tool_reports_battery(self):
+        brain = make_brain(self.tmp)
+        brain.va.battery_voltage = lambda: 7.21
+        brain.va.battery_low_volts = 7.3
+        out = asyncio.run(brain._after_body_tool({"tool_name": "mcp__robot__find"}, "t1", None))
+        self.assertEqual(out["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertEqual(out["hookSpecificOutput"]["additionalContext"], "Pila ahora: 7.21 V (baja).")
+        self.assertEqual(brain.va._last_volts, 7.21)
+
+    def test_after_body_tool_without_reading(self):
+        brain = make_brain(self.tmp)
+        brain.va.battery_voltage = lambda: None
+        out = asyncio.run(brain._after_body_tool({"tool_name": "mcp__robot__move"}, "t1", None))
+        self.assertEqual(out, {})
+
+    def test_interrupt_reaches_client_and_is_noop_when_closed(self):
+        brain = make_brain(self.tmp)
+        brain.interrupt()   # no session: nothing to do, must not raise
+        run(brain, brain._connect("prompt"))
+        client = brain._client
+        client.interrupted = False
+
+        async def fake_interrupt():
+            client.interrupted = True
+        client.interrupt = fake_interrupt
+        run(brain, brain._interrupt())
+        self.assertTrue(client.interrupted)
 
 
 class HookTests(unittest.TestCase):
@@ -318,6 +348,12 @@ class CostTests(unittest.TestCase):
         # a new connection (or /clear) reports from zero again
         self.assertAlmostEqual(self.brain._add_cost(0.05), 0.05)
         self.assertAlmostEqual(self.brain.spent_today, 0.35)
+
+    def test_external_cost_counts_toward_today(self):
+        self.brain._add_cost(0.20)
+        self.brain.add_external_cost(0.03)
+        self.assertAlmostEqual(self.brain.spent_today, 0.23)
+        self.assertAlmostEqual(self.brain._add_cost(0.25), 0.05)   # session total untouched
 
     def test_disconnect_resets_session_total(self):
         run(self.brain, self.brain._connect("prompt"))
