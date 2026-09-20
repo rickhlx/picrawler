@@ -17,6 +17,8 @@
 Description=Petronilo - PiCrawler voice assistant
 After=network-online.target sound.target
 Wants=network-online.target
+# keep retrying forever: a robot that gives up after five crashes stays quiet until someone notices
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -25,7 +27,8 @@ WorkingDirectory=/home/ricardo/picrawler/examples
 Environment=HOME=/root
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /home/ricardo/picrawler/examples/18_voice_active_crawler_gpt.py
-Restart=on-failure
+# always, not on-failure: the voice loop swallows exceptions and exits 0, which on-failure would not restart
+Restart=always
 RestartSec=5
 # give the servos/camera a moment to settle after a crash before restarting
 TimeoutStopSec=15
