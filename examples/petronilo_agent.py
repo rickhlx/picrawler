@@ -8,8 +8,11 @@ back sentence by sentence. Two processes, two privilege levels:
   workspace, so Bash, file writes and external MCP servers can't touch the
   robot or the rest of the Pi. ``agent_policy`` allowlists what it may do on
   top of that.
-- The robot tools are an in-process MCP server: they run here, in the root
-  voice service that owns the servos, camera and sonar.
+- The robot tools (``move``, ``find``, ``look``, ``sensors``, ``remember``,
+  ``recall``, ``forget``, ``remind``, ``reminders``, ``cancel_reminder``) are
+  an in-process MCP server: they run here, in the root voice service that
+  owns the servos, camera, sonar, memory (``memory.py``) and scheduler
+  (``scheduler.py``).
 
 One conversation (wake word to silence) is one agent session; the system
 prompt, with the latest memory, is fixed when the session starts.
@@ -92,7 +95,68 @@ def robot_tools(va):
     async def sensors(args):
         return _text(json.dumps(await asyncio.to_thread(va.sensor_readings)))
 
-    return [move, find, look, sensors]
+    @tool("remember", "Save one durable fact to the robot's long-term memory, on request or when "
+          "something worth keeping comes up. Write it in Spanish, as one short standalone "
+          "sentence, with absolute dates instead of relative ones (\"mañana\" -> the actual "
+          "date). Family members (who they are, relationships, birthdays, likes) go in "
+          "\"family\"; everything else durable (plans, requests, decisions) goes in \"other\".",
+          {"type": "object", "properties": {
+              "text": {"type": "string"},
+              "about": {"type": "string", "enum": ["family", "other"]}},
+           "required": ["text", "about"]})
+    async def remember(args):
+        file = "user" if args["about"] == "family" else "memory"
+        return _text(va.memory.add_fact(args["text"], file))
+
+    @tool("recall", "Search the robot's long-term memory and recent conversations for something.",
+          {"query": str})
+    async def recall(args):
+        results = va.memory.search(args["query"])
+        return _text("\n".join(results) if results else "Nothing stored about that.")
+
+    @tool("forget", "Remove every stored fact matching a query from the robot's long-term memory, "
+          "e.g. when asked to forget something.",
+          {"query": str})
+    async def forget(args):
+        n = va.memory.remove_fact(args["query"])
+        return _text(f"Forgot {n} fact(s)." if n else "Nothing matched.")
+
+    @tool("remind", "Schedule a reminder or task for later. \"when\" is a local ISO-8601 date "
+          "and time, e.g. 2026-09-21T08:00 (the current date and time are in the system "
+          "prompt). For kind \"say\", \"text\" is exactly what the robot will say aloud when "
+          "the time comes: write it in Petronilo's own voice, in Spanish. For kind \"ask\", "
+          "\"text\" is a task description the agent will carry out when the time comes.",
+          {"type": "object", "properties": {
+              "when": {"type": "string"},
+              "text": {"type": "string"},
+              "kind": {"type": "string", "enum": ["say", "ask"]},
+              "repeat": {"type": "string", "enum": ["none", "daily", "weekly"]}},
+           "required": ["when", "text", "kind", "repeat"]})
+    async def remind(args):
+        if va.scheduler is None:
+            return _text("No scheduler configured.", error=True)
+        repeat = None if args["repeat"] == "none" else args["repeat"]
+        try:
+            job = va.scheduler.add(args["when"], args["text"], args["kind"], repeat)
+        except ValueError as e:
+            return _text(str(e), error=True)
+        return _text(va.scheduler.describe(job))
+
+    @tool("reminders", "List every pending reminder and task.", {})
+    async def reminders(args):
+        if va.scheduler is None:
+            return _text("No scheduler configured.", error=True)
+        jobs = va.scheduler.list()
+        return _text("\n".join(va.scheduler.describe(j) for j in jobs) if jobs else "No reminders.")
+
+    @tool("cancel_reminder", "Cancel a pending reminder or task by its id.", {"id": str})
+    async def cancel_reminder(args):
+        if va.scheduler is None:
+            return _text("No scheduler configured.", error=True)
+        ok = va.scheduler.remove(args["id"])
+        return _text("Cancelled." if ok else "No reminder with that id.", error=not ok)
+
+    return [move, find, look, sensors, remember, recall, forget, remind, reminders, cancel_reminder]
 
 
 class AgentBrain:

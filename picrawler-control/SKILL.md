@@ -29,6 +29,11 @@ metadata:
 
 # PiCrawler Control Skill
 
+> This skill is for an OpenClaw agent that owns the robot outright and runs Python on it. It is not for
+> Petronilo's own agent: `petronilo.service` holds the camera and servos, and Petronilo's shell policy
+> cannot run `python3`. Do not install it under `/home/petronilo/.claude/skills/`; talk to the running
+> service through `examples/petronilo_ctl.py` instead.
+
 You are controlling a **PiCrawler** quadruped robot — a Raspberry Pi with 12 metal-gear servos, ultrasonic sensor, PiCamera, and speaker.
 
 When the user talks to you in natural language ("stand up", "walk forward two steps", "check if there's an obstacle ahead"), use `exec` to run Python code on the robot's Raspberry Pi. Examples below show exactly what to exec.

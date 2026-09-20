@@ -5,6 +5,8 @@ from secret import OPENAI_API_KEY as API_KEY
 
 from voice_active_crawler import VoiceActiveCrawler
 from seeker import VisionLocator, Sonar
+from scheduler import Scheduler
+from control import ControlServer
 
 # ── TTS engines ──────────────────────────────────────────────────────────
 # Pick one. The VoiceAssistant accepts any TTS instance via the `tts=` parameter.
@@ -198,12 +200,43 @@ preguntando cuál quieren ver.
   skills y los servicios conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
   algo, dilo con gracia y no busques otra forma de hacer lo mismo.
 
+## Tu memoria, a mano
+Lo que vale la pena se guarda solo al final de cada plática, pero también tienes herramientas: remember
+guarda un dato ahora mismo (cuando te piden "acuérdate de..." o te cuentan algo importante; lo de la
+familia con about "family"), recall busca en lo que tienes guardado y en las pláticas pasadas (úsala
+cuando te preguntan si te acuerdas de algo, o qué platicaron tal día, antes de decir que no sabes), y
+forget borra lo que te pidan olvidar. Confirma con gracia, sin recitar.
+
+## Recordatorios y pendientes
+Con remind programas cosas para después: la hora va en formato 2026-09-21T08:00 (abajo dice qué día y hora
+es ahora). kind "say" es un recordatorio que tú mismo dirás en voz alta cuando llegue la hora: escribe el
+texto como lo dirías tú, en español y con tu estilo. kind "ask" es una tarea que harás entonces (por
+ejemplo "revisa el clima y dile a Ricardo si va a llover"). repeat "daily" o "weekly" para lo que se
+repite. reminders lista lo pendiente y cancel_reminder lo borra. Cuando programes algo, confirma la hora
+en palabras ("mañana a las ocho te digo").
+
+## Mensajes por Telegram
+A veces te escriben por Telegram en vez de hablarte: el mensaje empieza con "Mensaje por Telegram de".
+Ahí contestas por escrito y corto, sin moverte ni tomar fotos, con el mismo humor.
+
 ## Cómo contestas
 Empieza siempre hablando: tu primera frase va antes de usar cualquier herramienta, así no se queda callado
 el cuarto mientras trabajas. Todo lo que escribes se lee en voz alta: solo texto hablado, corto. Nada de markdown, listas, asteriscos,
 emojis ni acotaciones como *saluda*. Nunca leas comandos, rutas, JSON ni direcciones web; di el resultado
 en palabras.
 """
+
+# Reminders and scheduled tasks (jobs.json next to the memory), spoken or run when their time comes
+# and nobody is talking to him.
+SCHEDULER = Scheduler(os.path.join(MEMORY_DIR, "jobs.json"))
+# Local control socket: `sudo python3 petronilo_ctl.py say|ask|stop|remind|jobs|status` (make ask MSG=...)
+CONTROL_SOCKET = "/run/petronilo.sock"
+# Telegram, optional: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS (list of ints) in secret.py. He answers
+# in writing, and everything he says on his own (reminders, tasks) is mirrored to those chats.
+try:
+    from secret import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_IDS
+except ImportError:
+    TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_IDS = None, []
 
 brain = None
 if AGENT:
@@ -251,7 +284,17 @@ vad = VoiceActiveCrawler(
     brain=brain,
     brain_error_phrase=BRAIN_ERROR_PHRASE,
     budget_phrase=BUDGET_PHRASE,
+    scheduler=SCHEDULER,
 )
 
+telegram = None
+if TELEGRAM_BOT_TOKEN:
+    from telegram_bridge import TelegramBridge
+    telegram = TelegramBridge(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_IDS, vad)
+    vad.notify = telegram.send
+
 if __name__ == '__main__':
+    ControlServer(vad, CONTROL_SOCKET).start()
+    if telegram:
+        telegram.start()
     vad.run()

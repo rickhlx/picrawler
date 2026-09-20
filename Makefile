@@ -36,7 +36,7 @@ RSYNC := rsync -az --delete --itemize-changes $(addprefix --exclude ,$(EXCLUDES)
 CALI_PI   := /root/.config/.picrawler.config
 CALI_REPO := calibration/picrawler.config
 
-.PHONY: sync sync-dry deployed restart deploy logs cali-pull cali-push
+.PHONY: sync sync-dry deployed restart deploy logs cali-pull cali-push ask say stop status jobs
 
 sync: ## Push the working tree to the Pi and stamp what was deployed
 	$(RSYNC) ./ $(PI_HOST):$(PI_DIR)/
@@ -65,3 +65,21 @@ cali-pull: ## Copy the Pi's servo calibration into the repo (commit it afterward
 
 cali-push: ## Overwrite the Pi's servo calibration with the repo copy
 	ssh $(PI_HOST) 'sudo mkdir -p $(dir $(CALI_PI)) && sudo tee $(CALI_PI) > /dev/null' < $(CALI_REPO)
+
+# Talk to the running service through its control socket (examples/control.py)
+CTL := ssh -t $(PI_HOST) sudo python3 $(PI_DIR)/examples/petronilo_ctl.py
+
+ask: ## Ask him something, spoken aloud on the Pi: make ask MSG="qué hora es"
+	$(CTL) ask "$(MSG)"
+
+say: ## Make him say a line verbatim: make say MSG="ya llegó la pizza"
+	$(CTL) say "$(MSG)"
+
+stop: ## Cut the current answer and moves
+	$(CTL) stop
+
+status: ## Battery, idle, spend today, pending reminders
+	$(CTL) status
+
+jobs: ## List pending reminders and tasks
+	$(CTL) jobs
