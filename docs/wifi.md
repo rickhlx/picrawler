@@ -34,7 +34,7 @@ sentence he speaks. See [latency](latency.md).
 Check it took:
 
 ```bash
-make wifi-status     # the connection he is on, plus his address
+make wifi-status     # the connection, SSID and signal he is on, plus his address
 ```
 
 ## Once you are there

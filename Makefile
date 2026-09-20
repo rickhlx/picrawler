@@ -89,8 +89,12 @@ wifi: ## Teach him a network before you move him: make wifi SSID="Casa de Ana" [
 wifi-list: ## Networks he already knows
 	ssh $(PI_HOST) nmcli -f NAME,TYPE,AUTOCONNECT connection show
 
+# The connection name is not the SSID (netplan names its profiles), so the SSID
+# comes from nmcli too: iwgetid ships with wireless-tools, which the Pi does not have.
 wifi-status: ## Which network he is on right now, and his address
-	ssh $(PI_HOST) "nmcli -t -f GENERAL.CONNECTION,IP4.ADDRESS device show wlan0; iwgetid -r || true"
+	ssh $(PI_HOST) "nmcli -t -f GENERAL.CONNECTION,IP4.ADDRESS device show wlan0; \
+		nmcli -t -f ACTIVE,SSID,SIGNAL device wifi list --rescan no \
+		| sed -n 's/^yes:\(.*\):\(.*\)/SSID:\1\nSIGNAL:\2%/p'"
 
 # Talk to the running service through its control socket (examples/control.py)
 CTL := ssh -t $(PI_HOST) sudo python3 $(PI_DIR)/examples/petronilo_ctl.py
