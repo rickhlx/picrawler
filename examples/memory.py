@@ -8,6 +8,8 @@ agent memory:
       MEMORY.md             everything else worth keeping: plans, running jokes, requests
       memory/
         2026-09-18.md       daily notes, one line per conversation
+      transcripts/
+        2026-09-18.md       every conversation word for word, one "## HH:MM" block each
 
 When a conversation ends, `Memory.learn(transcript)` sends the transcript and
 the stored facts to an LLM, which answers with edits (add / update / delete,
@@ -17,6 +19,11 @@ daily notes for the system prompt.
 
 Facts are the "- " bullets of USER.md and MEMORY.md. The files can be edited
 by hand (with the assistant stopped): text above the first bullet is kept.
+
+`log_conversation(transcript)` keeps the conversation itself, verbatim, in
+`transcripts/YYYY-MM-DD.md` (pruned after `transcript_days`). Transcripts never
+go in the prompt: `search` reads them, so "what did I tell you yesterday" finds
+the actual sentence and not just the daily note's summary.
 
 `add_fact`, `remove_fact`, `search` and `recent` are the direct, no-LLM path:
 the agent's `remember` / `recall` / `forget` tools (petronilo_agent.py) use
@@ -64,6 +71,7 @@ FILES = {
                "Se actualiza solo al final de cada plática; se puede editar a mano (un dato por línea \"- \").\n"),
 }
 DAILY_DIR = "memory"
+TRANSCRIPT_DIR = "transcripts"
 
 
 class Memory:
@@ -71,13 +79,15 @@ class Memory:
     MEMORY_HEADER = "## Lo que tienes guardado: planes, fechas y chistes internos"
     DAILY_HEADER = "## Pláticas recientes"
 
-    def __init__(self, path, llm=None, name="the robot", max_facts=150, recent_days=2, recent_notes=10):
+    def __init__(self, path, llm=None, name="the robot", max_facts=150, recent_days=2, recent_notes=10,
+                 transcript_days=90):
         self.path = path
         self.llm = llm   # used only for learn(); None keeps the memory read-only
         self.name = name
         self.max_facts = max_facts
         self.recent_days = recent_days     # daily notes in the prompt (OpenClaw: today and yesterday)
         self.recent_notes = recent_notes   # at most this many lines from them
+        self.transcript_days = transcript_days   # verbatim transcripts older than this are deleted
         self._lock = threading.Lock()         # guards facts
         self._learn_lock = threading.Lock()   # one learn() at a time, so fact ids stay valid
         self._preambles = {key: FILES[key][1] for key in FILES}
@@ -297,6 +307,8 @@ class Memory:
         for day, line in reversed(self._all_daily()):
             if all(w in _norm(line) for w in words):
                 out.append(f"{day} {line}")
+        if len(out) < limit:
+            out += self._search_transcripts(words, limit - len(out))
         return out[:limit]
 
     def recent(self, days=7):
@@ -304,6 +316,82 @@ class Memory:
         notes = self._all_daily()
         keep_days = sorted({d for d, _ in notes})[-days:]
         return [f"{d} {line}" for d, line in notes if d in keep_days]
+
+    # ── verbatim transcripts (log_conversation / search) ─────────────
+
+    def log_conversation(self, transcript, when=None):
+        """Append one conversation word for word to transcripts/<date>.md:
+        a "## HH:MM" heading, then one line per turn ("- Usuario: ..." /
+        "- <name>: ..."). Nothing is written without a user turn. Transcripts
+        older than transcript_days are deleted afterwards."""
+        turns = [(role, " ".join(str(text).split())) for role, text in transcript if text and str(text).strip()]
+        if not any(role == "user" for role, _ in turns):
+            return
+        when = when or datetime.now()
+        day = when.date().isoformat()
+        path = self._transcript(day)
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read().rstrip("\n") + "\n\n"
+        except FileNotFoundError:
+            text = f"# {day}\n\n"
+        block = f"## {when:%H:%M}\n" + "".join(
+            f"- {'Usuario' if role == 'user' else self.name}: {t}\n" for role, t in turns)
+        _write(path, text + block)
+        self._prune_transcripts(when.date())
+
+    def _transcript(self, day):
+        return os.path.join(self.path, TRANSCRIPT_DIR, f"{day}.md")
+
+    def _transcript_days(self):
+        """Transcript file names (YYYY-MM-DD) newest first."""
+        try:
+            names = os.listdir(os.path.join(self.path, TRANSCRIPT_DIR))
+        except FileNotFoundError:
+            return []
+        return sorted((n[:-3] for n in names if n.endswith(".md")), reverse=True)
+
+    def _prune_transcripts(self, today):
+        if not self.transcript_days:
+            return
+        for day in self._transcript_days():
+            try:
+                age = (today - date.fromisoformat(day)).days
+            except ValueError:
+                continue   # not one of ours
+            if age > self.transcript_days:
+                try:
+                    os.remove(self._transcript(day))
+                except OSError as e:
+                    print(f"(memoria: no se pudo borrar {self._transcript(day)}: {e})")
+
+    def _search_transcripts(self, words, limit):
+        """Transcript lines containing every word, newest first (newest day,
+        then newest block, then line order). Reads one file at a time and
+        stops as soon as `limit` matches are in hand."""
+        out = []
+        for day in self._transcript_days():
+            if len(out) >= limit:
+                break
+            try:
+                with open(self._transcript(day), encoding="utf-8") as f:
+                    lines = f.read().splitlines()
+            except OSError:
+                continue
+            blocks, current = [], None
+            for line in lines:
+                if line.startswith("## "):
+                    current = (line[3:].strip(), [])
+                    blocks.append(current)
+                elif line.startswith("- ") and current is not None:
+                    current[1].append(line[2:].strip())
+            for hhmm, turns in reversed(blocks):
+                for t in turns:
+                    if all(w in _norm(t) for w in words):
+                        out.append(f"{day} {hhmm} {t}")
+                        if len(out) >= limit:
+                            return out
+        return out
 
     def _all_daily(self):
         try:

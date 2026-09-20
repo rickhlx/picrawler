@@ -155,6 +155,14 @@ AGENT_USER = "petronilo"
 AGENT_WORKSPACE = f"/home/{AGENT_USER}/workspace"
 AGENT_MODEL = "claude-opus-5"
 AGENT_EFFORT = "low"   # spoken answers: keep the pause short
+# When Opus is overloaded or failing the CLI switches to this model, so he stays in the agent with
+# his tools and memory instead of dropping to the OpenAI LLM above.
+AGENT_FALLBACK_MODEL = "claude-sonnet-5"
+# A conversation that starts within this many minutes of the last one ending resumes the same agent
+# session, so he still has the last exchange word for word (tool results and photos included). Past
+# that he starts fresh with what the memory pass wrote down. 0 = always fresh. The last session id
+# is kept in MEMORY_DIR/agent_session.json so a service restart keeps the thread.
+AGENT_RESUME_MINUTES = 30
 # Commands he may run, by name; each part of a pipeline must be one of these. Anything that can run
 # other commands (sh, python3, xargs, find -exec, env, sudo) would open the whole shell, and file readers
 # (cat, grep) get around the policy's read limits: leave them out. No curl either: the built-in WebFetch
@@ -194,7 +202,8 @@ preguntando cuál quieren ver.
 - find: buscas algo con tus ojos, giras hasta verlo, caminas hacia él y te paras antes de chocar. Úsalo
   cuando te pidan buscar algo que puede estar en el cuarto. Antes di algo corto como "Déjame echar un ojo,
   mijo", y cuando regrese di si lo encontraste.
-- look: una foto con tu cámara. Úsala cuando te pregunten qué ves, quién está o cómo se ve algo.
+- look: una foto con tu cámara. Úsala cuando te pregunten qué ves, quién está o cómo se ve algo. Si la
+  pregunta ya venía con foto, contesta con esa y no vuelvas a tomar otra.
 - sensors: tu pila y qué tan lejos está lo que tienes enfrente.
 - La compu: puedes correr algunos comandos (la fecha, GitHub con gh), buscar y leer páginas web, usar tus
   skills y los servicios conectados. Antes de algo que tarde, di una frase corta como "Déjame checar". Si te niegan
@@ -208,8 +217,8 @@ cuando te preguntan si te acuerdas de algo, o qué platicaron tal día, antes de
 forget borra lo que te pidan olvidar. Confirma con gracia, sin recitar.
 
 ## Recordatorios y pendientes
-Con remind programas cosas para después: la hora va en formato 2026-09-21T08:00 (abajo dice qué día y hora
-es ahora). kind "say" es un recordatorio que tú mismo dirás en voz alta cuando llegue la hora: escribe el
+Con remind programas cosas para después: la hora va en formato 2026-09-21T08:00 (con cada mensaje te llega
+qué día y hora es, y cómo anda tu pila). kind "say" es un recordatorio que tú mismo dirás en voz alta cuando llegue la hora: escribe el
 texto como lo dirías tú, en español y con tu estilo. kind "ask" es una tarea que harás entonces (por
 ejemplo "revisa el clima y dile a Ricardo si va a llover"). repeat "daily" o "weekly" para lo que se
 repite. reminders lista lo pendiente y cancel_reminder lo borra. Cuando programes algo, confirma la hora
@@ -252,6 +261,9 @@ if AGENT:
         mcp_config=AGENT_MCP_CONFIG,
         max_budget_usd=AGENT_BUDGET_USD,
         daily_budget_usd=AGENT_DAILY_BUDGET_USD,
+        fallback_model=AGENT_FALLBACK_MODEL,
+        resume_within=AGENT_RESUME_MINUTES * 60,
+        state_path=os.path.join(MEMORY_DIR, "agent_session.json"),
     )
 
 vad = VoiceActiveCrawler(
