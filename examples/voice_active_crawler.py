@@ -5,10 +5,16 @@ import time
 import queue
 import threading
 import concurrent.futures
+import datetime
 import os
 import random
 import re
 import sys
+
+# Spanish weekday/month names for the "## Ahora" prompt section (datetime.weekday(): 0=Monday)
+_WEEKDAYS_ES = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
+_MONTHS_ES = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+              "septiembre", "octubre", "noviembre", "diciembre")
 
 
 class VoiceActiveCrawler(VoiceAssistant):
@@ -46,8 +52,29 @@ class VoiceActiveCrawler(VoiceAssistant):
                  fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None,
                  brain_error_phrase="Se me fue la señal, mijo. Pregúntame otra vez en un ratito.",
                  budget_phrase="Ya gasté mi domingo de hoy, mijo. Mañana seguimos platicando.",
+                 scheduler=None, notify=None, task_wait_seconds=600,
                  **kwargs):
         self.action_queue = queue.Queue()
+        # Autonomous turns (reminders, tasks from a control socket or Telegram) outside
+        # any wake-word conversation. scheduler: Scheduler with pop_due()/describe() (see
+        # scheduler.py); notify: callable(text) to mirror what he says on his own to a
+        # text channel; task_wait_seconds: how long an autonomous turn waits for an
+        # ongoing conversation to end before giving up.
+        self.scheduler = scheduler
+        self.notify = notify
+        self.task_wait_seconds = task_wait_seconds
+        # Set at the end of on_start and whenever a conversation ends; cleared in on_wake.
+        # A conversation spans on_wake..._end_conversation.
+        self._idle = threading.Event()
+        # Serializes autonomous turns; on_wake acquires/releases this first thing, so a
+        # wake word waits for a running task to finish (a few seconds at most).
+        self._task_lock = threading.Lock()
+        # The SpeechPipeline currently speaking, if any (conversation or autonomous turn).
+        self._pipeline = None
+        self._prompt_lock = threading.Lock()
+        # Bumped at every wake word, so the thread that closes a conversation can tell
+        # whether a new one started before it got to mark him idle.
+        self._conversation = 0
         # Agent brain (petronilo_agent.AgentBrain): replies come from a Claude
         # agent with shell, skills, MCP and robot tools instead of self.llm,
         # which then only serves the base class. None = plain LLM + ACTIONS: line.
@@ -153,11 +180,19 @@ class VoiceActiveCrawler(VoiceAssistant):
         )
         self._action_thread.start()
         self.crawler.do_action("sit", speed=50)
+        if self.scheduler is not None:
+            threading.Thread(target=self._scheduler_loop, daemon=True).start()
+        self._idle.set()
 
     def before_listen(self):
         self.crawler.do_action("sit", speed=50)
 
     def on_wake(self):
+        # wait out a running autonomous turn first (a few seconds at most), and go
+        # busy under the same lock so no task can start in between
+        with self._task_lock:
+            self._idle.clear()
+            self._conversation += 1
         if self.brain is not None:
             self._refresh_system_prompt()
             self.brain.start(self._system_msg["content"])
@@ -175,10 +210,21 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._transcript.append(("assistant", self._ACTIONS_RE.split(text, maxsplit=1)[0].strip()))
 
     def _refresh_system_prompt(self):
-        msgs = self.llm.messages
-        history = [m for m in msgs if m is not self._system_msg][-(self._history_limit - 1):]
-        msgs[:] = [self._system_msg] + history
-        self._system_msg["content"] = self.instructions + self.memory.prompt_section()
+        # called from several threads now (conversation, prewarm, autonomous turns)
+        with self._prompt_lock:
+            msgs = self.llm.messages
+            history = [m for m in msgs if m is not self._system_msg][-(self._history_limit - 1):]
+            msgs[:] = [self._system_msg] + history
+            self._system_msg["content"] = (
+                self.instructions + self.memory.prompt_section() + self._ahora_section()
+            )
+
+    def _ahora_section(self):
+        now = datetime.datetime.now()
+        dia = _WEEKDAYS_ES[now.weekday()]
+        mes = _MONTHS_ES[now.month - 1]
+        return (f"\n## Ahora\nHoy es {dia} {now.day} de {mes} de {now.year}, "
+                f"{now.hour:02d}:{now.minute:02d}.\n")
 
     # Spanish (and a few loose English) names the LLM may emit -> ACTION_MAP keys
     ACTION_ALIASES = {
@@ -398,6 +444,7 @@ class VoiceActiveCrawler(VoiceAssistant):
     def _think_llm_streaming(self, text, disable_image):
         from petronilo_voice import SpeechPipeline
         pipeline = SpeechPipeline(self.tts)
+        self._pipeline = pipeline
         self._start_talking()
         try:
             response = self._llm_response(text, disable_image)
@@ -408,12 +455,14 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._spoken_result = result
         finally:
             pipeline.finish()
+            self._pipeline = None
             self._talking.clear()
         return result
 
     def _think_agent_streaming(self, text, disable_image):
         from petronilo_voice import SpeechPipeline
         pipeline = SpeechPipeline(self.tts)
+        self._pipeline = pipeline
         self._start_talking()
         try:
             result = self._ask_agent_streaming(text, pipeline, disable_image)
@@ -422,6 +471,7 @@ class VoiceActiveCrawler(VoiceAssistant):
             self._spoken_result = result
         finally:
             pipeline.finish()
+            self._pipeline = None
             self._talking.clear()
         return result
 
@@ -461,15 +511,173 @@ class VoiceActiveCrawler(VoiceAssistant):
         finally:
             self._spoken_result = saved
 
+    # ── autonomous turns (reminders, control socket, Telegram) ───────
+
+    def _acquire_idle(self, what):
+        """Take _task_lock while he is idle, or give up after task_wait_seconds.
+        Re-checks idle under the lock: a wake word may land between the wait
+        and the acquire. The caller must release the lock."""
+        deadline = time.time() + self.task_wait_seconds
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0 or not self._idle.wait(remaining):
+                print(f"(tarea: seguía ocupado tras {self.task_wait_seconds}s, descarto: {what!r})")
+                return False
+            self._task_lock.acquire()
+            if self._idle.is_set():
+                return True
+            self._task_lock.release()
+
+    def run_task(self, prompt, speak=True):
+        """One autonomous agent turn outside any wake-word conversation. Waits
+        for an ongoing conversation to finish, then asks the brain (or the
+        legacy LLM) and optionally speaks the reply. Returns the reply text
+        ("" if it never got a turn in time)."""
+        if not self._acquire_idle(prompt):
+            return ""
+        try:
+            self._refresh_system_prompt()
+            self._tool_moves = 0
+            if self.brain is None:
+                response = self._llm_response(prompt, True)
+            else:
+                response = self.brain.ask(prompt, self._system_msg["content"])
+            if speak:
+                from petronilo_voice import SpeechPipeline
+                pipeline = SpeechPipeline(self.tts)
+                self._pipeline = pipeline
+                self._start_talking()
+                state = {}
+                try:
+                    text = self._stream_to_speech(response, pipeline, state)[0]
+                except Exception as e:
+                    print(f"(tarea falló: {e})")
+                    partial = state.get("text", "").strip()
+                    if state.get("spoken", False):
+                        text = partial
+                    else:
+                        pipeline.feed(self.brain_error_phrase)
+                        text = (partial + " " + self.brain_error_phrase).strip()
+                finally:
+                    pipeline.finish()
+                    self._pipeline = None
+                    self._talking.clear()
+                    self._wait_actions_done()
+                    self.crawler.do_action("sit", speed=50)
+            else:
+                try:
+                    text = "".join(response).strip()
+                except Exception as e:
+                    print(f"(tarea falló: {e})")
+                    text = self.brain_error_phrase
+            if self.brain is not None:
+                # still under the lock: a wake word must not open its session
+                # while this one is being closed
+                self._finish_task_brain()
+        finally:
+            self._task_lock.release()
+        print(f"(tarea: {text})")
+        if speak and self.notify:
+            try:
+                self.notify(text)
+            except Exception as e:
+                print(f"(notificar falló: {e})")
+        return text
+
+    def _finish_task_brain(self):
+        try:
+            self.brain.end()
+        except Exception as e:
+            print(f"(agente: cierre falló: {e})")
+        self._prewarm()
+
+    def say(self, text):
+        """Say text on his own, outside any conversation (e.g. a "say" reminder)."""
+        if not text:
+            return
+        if not self._acquire_idle(text):
+            return
+        try:
+            self.tts.say(text)
+        finally:
+            self._task_lock.release()
+        if self.notify:
+            try:
+                self.notify(text)
+            except Exception as e:
+                print(f"(notificar falló: {e})")
+
+    def stop_speaking(self):
+        """Cancel whatever is being said and drain queued actions. Safe to
+        call from any thread at any time."""
+        if self._pipeline is not None:
+            self._pipeline.cancel()
+        while True:
+            try:
+                job = self.action_queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(job, tuple) and job[0] == "call":
+                job[4].set_exception(RuntimeError("cancelled"))
+        self.action_queue.put("stop")
+
+    def _scheduler_loop(self):
+        while self._action_running:
+            try:
+                jobs = self.scheduler.pop_due()
+            except Exception as e:
+                print(f"(agenda falló: {e})")
+                jobs = []
+            for job in jobs:
+                try:
+                    print(f"(recordatorio: {self.scheduler.describe(job)})")
+                    if job["kind"] == "say":
+                        self.say(job["text"])
+                    elif job["kind"] == "ask":
+                        self.run_task(job["text"])
+                except Exception as e:
+                    print(f"(recordatorio falló: {e})")
+            time.sleep(5)
+
     # ── memory ────────────────────────────────────────────────────────
 
     def _end_conversation(self):
-        if self.brain is not None:
-            threading.Thread(target=self.brain.end, daemon=True).start()
         transcript, self._transcript = self._transcript, []
-        if transcript:
-            # one LLM call; off the main loop so the next wake word is not delayed
-            threading.Thread(target=self.memory.learn, args=(transcript,), daemon=True).start()
+        conversation = self._conversation
+
+        def finish():
+            # one thread, in order: close the agent session, learn from the
+            # transcript (memory_llm call), then reopen the session with the
+            # freshly learned memory so the CLI start-up is off the critical
+            # path of the next wake word. Each step is guarded so a failure
+            # in one does not skip _idle.set() and wedge autonomous turns.
+            if self.brain is not None:
+                try:
+                    self.brain.end()
+                except Exception as e:
+                    print(f"(agente: cierre falló: {e})")
+            if transcript:
+                try:
+                    self.memory.learn(transcript)
+                except Exception as e:
+                    print(f"(memoria falló: {e})")
+            self._prewarm()
+            # not if a new conversation already started while this one was learning
+            with self._task_lock:
+                if self._conversation == conversation:
+                    self._idle.set()
+
+        threading.Thread(target=finish, daemon=True).start()
+
+    def _prewarm(self):
+        """Open the agent's next session ahead of time (no-op without a brain)."""
+        if self.brain is None:
+            return
+        try:
+            self._refresh_system_prompt()
+            self.brain.start(self._system_msg["content"])
+        except Exception as e:
+            print(f"(agente: prewarm falló: {e})")
 
     # ── vision greeting on wake (opt-in) ─────────────────────────────
 

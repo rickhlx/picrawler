@@ -17,10 +17,16 @@ daily notes for the system prompt.
 
 Facts are the "- " bullets of USER.md and MEMORY.md. The files can be edited
 by hand (with the assistant stopped): text above the first bullet is kept.
+
+`add_fact`, `remove_fact`, `search` and `recent` are the direct, no-LLM path:
+the agent's `remember` / `recall` / `forget` tools (petronilo_agent.py) use
+them to read and write memory on request, mid-conversation.
 """
 import json
 import os
+import re
 import threading
+import unicodedata
 from datetime import date, datetime
 
 EXTRACT_PROMPT = """You maintain the long-term memory of {name}, a voice assistant robot that lives with a family.
@@ -233,6 +239,84 @@ class Memory:
         if changed and not added:
             print("(memoria actualizada)")
 
+    # ── direct tool access (remember / recall / forget) ─────────────────
+
+    def add_fact(self, text, file="memory"):
+        """Save one fact right away, no LLM involved. Returns a short English
+        message for a tool reply."""
+        text = text.strip()
+        if not text:
+            return "Nothing to save."
+        key = file if file in FILES else "memory"
+        # _learn_lock too: learn() addresses facts by index between its extract
+        # and apply steps, so nothing may reorder them meanwhile
+        with self._learn_lock, self._lock:
+            norm = _norm(text)
+            if any(_norm(f["text"]) == norm for f in self.facts):
+                return "Already known."
+            facts = self.facts + [{"file": key, "text": text}]
+            facts = _trim(facts, self.max_facts)
+            facts = [f for k in FILES for f in facts if f["file"] == k]
+            self.facts = facts
+            for k in FILES:
+                self._write_facts(k, facts)
+        print(f"(memoria guardada en {FILES[key][0]}: {text})")
+        return f"Saved to {FILES[key][0]}: {text}"
+
+    def remove_fact(self, query):
+        """Remove every fact whose normalized text contains the normalized
+        query. Returns how many were removed."""
+        norm = _norm(query)
+        if len(norm) < 3:
+            return 0
+        with self._learn_lock, self._lock:
+            keep, removed = [], []
+            for f in self.facts:
+                (removed if norm in _norm(f["text"]) else keep).append(f)
+            if not removed:
+                return 0
+            self.facts = keep
+            for key in FILES:
+                self._write_facts(key, keep)
+        for f in removed:
+            print(f"(memoria: olvidado: {f['text']})")
+        return len(removed)
+
+    def search(self, query, limit=10):
+        """Facts and daily notes whose normalized text contains every word of
+        the query, notes newest first."""
+        words = [w for w in _norm(query).split(" ") if w]
+        if not words:
+            return []
+        with self._lock:
+            facts = list(self.facts)
+        out = []
+        for f in facts:
+            if all(w in _norm(f["text"]) for w in words):
+                out.append(f"{FILES[f['file']][0]}: {f['text']}")
+        for day, line in reversed(self._all_daily()):
+            if all(w in _norm(line) for w in words):
+                out.append(f"{day} {line}")
+        return out[:limit]
+
+    def recent(self, days=7):
+        """Daily note lines from the last `days` days, oldest first."""
+        notes = self._all_daily()
+        keep_days = sorted({d for d, _ in notes})[-days:]
+        return [f"{d} {line}" for d, line in notes if d in keep_days]
+
+    def _all_daily(self):
+        try:
+            days = sorted(n for n in os.listdir(os.path.join(self.path, DAILY_DIR)) if n.endswith(".md"))
+        except FileNotFoundError:
+            return []
+        out = []
+        for name in days:
+            day = name[:-3]
+            with open(os.path.join(self.path, DAILY_DIR, name), encoding="utf-8") as f:
+                out += [(day, line[2:].strip()) for line in f.read().splitlines() if line.startswith("- ")]
+        return out
+
 
 def _write(path, text):
     """Atomic and durable: the Pi browns out, and a torn write would empty the file."""
@@ -251,6 +335,13 @@ def _write(path, text):
             os.close(fd)
     except Exception as e:
         print(f"(memoria: no se pudo guardar {path}: {e})")
+
+
+def _norm(text):
+    """Lowercase, accent-insensitive, whitespace-collapsed, for matching."""
+    text = unicodedata.normalize("NFD", text.lower())
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _trim(facts, limit):

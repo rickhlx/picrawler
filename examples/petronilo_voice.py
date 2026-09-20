@@ -212,13 +212,14 @@ class SpeechPipeline:
         self._sentences = queue.Queue()   # str | None
         self._audio = queue.Queue()       # (path|None, sentence) | None
         self._done = threading.Event()
+        self._cancelled = threading.Event()
         self._tmpdir = tempfile.mkdtemp(prefix="petronilo_")
         threading.Thread(target=self._synth_worker, daemon=True).start()
         threading.Thread(target=self._play_worker, daemon=True).start()
 
     # -- producer side --------------------------------------------------------
     def feed(self, chunk):
-        if not chunk:
+        if not chunk or self._cancelled.is_set():
             return
         self._buf += chunk
         parts = _SENTENCE_SPLIT.split(self._buf)
@@ -227,6 +228,8 @@ class SpeechPipeline:
             self._emit(p)
 
     def _emit(self, sentence):
+        if self._cancelled.is_set():
+            return
         s = (self._pending + " " + sentence).strip() if self._pending else sentence.strip()
         if not s:
             return
@@ -236,13 +239,45 @@ class SpeechPipeline:
         self._pending = ""
         self._sentences.put(s)
 
-    def finish(self, timeout=120):
-        """Flush the remainder and block until playback has finished."""
-        tail = (self._pending + " " + self._buf).strip()
-        self._pending = self._buf = ""
-        if tail:
-            self._sentences.put(tail)
+    def cancel(self):
+        """Cancel this pipeline: drops everything not already playing. The
+        sentence currently playing cannot be interrupted (AudioPlayer has no
+        stop call), so speech trails off after that one sentence. Safe to
+        call more than once or after finish()."""
+        if self._cancelled.is_set():
+            return
+        self._cancelled.set()
+        while True:
+            try:
+                self._sentences.get_nowait()
+            except queue.Empty:
+                break
+        while True:
+            try:
+                item = self._audio.get_nowait()
+            except queue.Empty:
+                break
+            if item is not None:
+                path, _sentence = item
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+        # unblock the synth worker (it forwards this None to the play worker,
+        # which is what sets _done and lets finish() return)
         self._sentences.put(None)
+
+    def finish(self, timeout=120):
+        """Flush the remainder and block until playback has finished. After
+        cancel(), the pending text is dropped: this just waits for the
+        already-cancelled pipeline to wind down."""
+        if not self._cancelled.is_set():
+            tail = (self._pending + " " + self._buf).strip()
+            self._pending = self._buf = ""
+            if tail:
+                self._sentences.put(tail)
+            self._sentences.put(None)
         self._done.wait(timeout)
 
     # -- workers --------------------------------------------------------------
@@ -253,6 +288,8 @@ class SpeechPipeline:
             if s is None:
                 self._audio.put(None)
                 break
+            if self._cancelled.is_set():
+                continue   # drop it, keep draining until the sentinel
             path = os.path.join(self._tmpdir, f"s{n}.wav")
             n += 1
             ok = False
