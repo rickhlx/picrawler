@@ -64,6 +64,28 @@ started talking — the real error is in the journal, often a timeout or an
 overloaded model. If he says **"ya gasté mi domingo"**, the daily budget is
 spent; it rolls over at midnight, and `make status` confirms.
 
+## He gets cut off after one answer, or goes quiet far too early in the day
+
+Every conversation ending in `(agente: tope de gasto de la conversación
+alcanzado)` after a single turn, and `hoy $...` climbing much faster than the
+answers justify, means the session's spend is being counted more than once:
+
+```bash
+journalctl -u petronilo --since today | grep -E 'agente: \$|retomo la sesión'
+```
+
+The tell is the first cost of each resumed conversation climbing steadily
+(`$0.41`, `$0.97`, `$1.20`, `$1.68`...) while the later turns of the same
+conversation stay at a few cents. A resumed session keeps reporting the whole
+session's running total, so the spend it already had must be subtracted; the
+`cost` field in `petronilo_memory/agent_session.json` is what carries it across
+restarts. If the daily total is wrong today, restarting the service clears it —
+`spent_today` is only kept in memory:
+
+```bash
+ssh picrawler "sudo systemctl restart petronilo"
+```
+
 ## He answers but never moves
 
 In order of likelihood:

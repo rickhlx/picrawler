@@ -210,11 +210,17 @@ class AgentBrain:
         self.state_path = state_path
         self.last_session_id = None
         self.last_session_end = 0.0
+        # What last_session_id had spent in total when it closed. None means we
+        # never recorded it (an older state file), which _add_cost handles by
+        # taking the resumed session's first report as the baseline.
+        self.last_session_cost = None
         self._load_state()
         self.spent_today = 0.0
         self._spent_day = datetime.date.today()
-        # Running total the current connection has reported so far (see _add_cost)
+        # Running total the current session has reported so far (see _add_cost).
+        # A resumed session carries on from what it already spent, not from 0.
         self._session_cost = 0.0
+        self._cost_unknown = False
         self._session_id = None
         # when the conversation this connection resumed had ended (None: fresh)
         self._resumed_end = None
@@ -237,6 +243,9 @@ class AgentBrain:
             sid, end = data.get("session_id"), data.get("ended")
             if isinstance(sid, str) and sid and isinstance(end, (int, float)):
                 self.last_session_id, self.last_session_end = sid, float(end)
+                cost = data.get("cost")
+                self.last_session_cost = (
+                    float(cost) if isinstance(cost, (int, float)) else None)
         except FileNotFoundError:
             pass
         except Exception as e:
@@ -249,19 +258,23 @@ class AgentBrain:
             os.makedirs(os.path.dirname(os.path.abspath(self.state_path)), exist_ok=True)
             tmp = self.state_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"session_id": self.last_session_id, "ended": self.last_session_end}, f)
+                json.dump({"session_id": self.last_session_id,
+                           "ended": self.last_session_end,
+                           "cost": self.last_session_cost}, f)
             os.replace(tmp, self.state_path)
         except Exception as e:
             print(f"(agente: no se pudo guardar {self.state_path}: {e})")
 
-    def _remember_session(self, session_id):
+    def _remember_session(self, session_id, cost=None):
         self.last_session_id = session_id
         self.last_session_end = time.time()
+        self.last_session_cost = cost
         self._save_state()
 
     def _forget_session(self):
         self.last_session_id = None
         self.last_session_end = 0.0
+        self.last_session_cost = None
         self._save_state()
 
     def resume_id(self, now=None):
@@ -322,7 +335,11 @@ class AgentBrain:
         env["MCP_TOOL_TIMEOUT"] = str(MCP_TOOL_TIMEOUT_MS)
         kwargs = {}
         if self.max_budget_usd is not None:
-            kwargs["max_budget_usd"] = self.max_budget_usd
+            # The CLI counts a resumed session's whole running total against
+            # this cap, so raise it by what the session already spent; the cap
+            # is meant to bound one conversation, not the session's history.
+            kwargs["max_budget_usd"] = self.max_budget_usd + (
+                (self.last_session_cost or 0.0) if resume else 0.0)
         if self.fallback_model:
             kwargs["fallback_model"] = self.fallback_model
         if resume:
@@ -426,7 +443,8 @@ class AgentBrain:
                 if attempt:
                     print(f"(agente: retomo la sesión {attempt})")
                 self._client = client
-                self._session_cost = 0.0
+                self._session_cost = (self.last_session_cost or 0.0) if attempt else 0.0
+                self._cost_unknown = bool(attempt) and self.last_session_cost is None
                 self._session_id = attempt
                 self._resumed_end = self.last_session_end if attempt else None
                 return
@@ -440,11 +458,21 @@ class AgentBrain:
     def _add_cost(self, total):
         """``total`` is what a ResultMessage reports. ClaudeSDKClient runs in
         streaming input mode, where ``total_cost_usd`` is the running total of
-        the whole connection so far, not this turn's cost (Agent SDK docs, "Track
+        the whole *session* so far, not this turn's cost (Agent SDK docs, "Track
         cost and usage" -> streaming input mode), so only the increase since
-        the previous result counts. A drop means the CLI reset its total (a new
-        connection, or a /clear): start over from it. Returns this turn's cost."""
+        the previous result counts. Resuming does not restart that total, which
+        is why _connect seeds _session_cost from the resumed session rather than
+        from 0 -- otherwise every resume bills the session's whole history again,
+        compounding each time. A drop means the CLI really did reset (a fresh
+        session, or a /clear): start over from it. Returns this turn's cost."""
         self._roll_day()
+        if self._cost_unknown:
+            # Resumed a session from before we recorded spend: take its first
+            # report as the baseline instead of billing the history again. This
+            # under-counts one turn, which beats over-counting all of them.
+            self._cost_unknown = False
+            self._session_cost = total
+            return 0.0
         turn = total - self._session_cost if total >= self._session_cost else total
         self._session_cost = total
         self.spent_today += turn
@@ -519,9 +547,14 @@ class AgentBrain:
         client, self._client = self._client, None
         if client is not None:
             if remember and self._session_id:
-                self._remember_session(self._session_id)
+                # Still unknown means no result came back, so we learnt nothing
+                # about this session's spend: keep it unknown rather than 0.
+                self._remember_session(
+                    self._session_id,
+                    None if self._cost_unknown else self._session_cost)
             self._session_id = None
             self._session_cost = 0.0
+            self._cost_unknown = False
             self._resumed_end = None
             try:
                 await client.disconnect()
