@@ -185,7 +185,7 @@ class AgentBrain:
     once ``spent_today`` reaches it; the caller catches ``BudgetExceeded`` and
     speaks a canned phrase instead."""
 
-    def __init__(self, *, api_key, workspace, user=None, commands=(), model="claude-opus-5",
+    def __init__(self, *, api_key, workspace, user=None, commands=(), model="claude-opus-5-5",
                  effort="low", mcp_config=None, skills="all", max_turns=12,
                  max_budget_usd=None, daily_budget_usd=None, fallback_model=None,
                  resume_within=1800, state_path=None):

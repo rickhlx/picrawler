@@ -165,7 +165,7 @@ Six models share the work, and only the first one writes what he says:
 
 | Job | Model | Set in |
 |-----|-------|--------|
-| His answers | `claude-fable-5-1`, effort `low` | `AGENT_MODEL` |
+| His answers | `claude-opus-5-5`, effort `low` | `AGENT_MODEL` |
 | When that model is overloaded | `claude-sonnet-5` | `AGENT_FALLBACK_MODEL` |
 | When the agent fails outright | `gpt-5.6-luna` | `llm = LLM(...)` |
 | Deciding what to remember | `gpt-4.1-mini` | `memory_llm` |

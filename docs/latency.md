@@ -10,7 +10,7 @@ goes, what has been done about it, and what is left.
 wake word (offline, Vosk)      ~0      never leaves the Pi
   -> record until you stop talking
   -> STT round trip            network  gpt-4o-transcribe
-  -> agent first token         network  claude-fable-5-1, session already open
+  -> agent first token         network  claude-opus-5-5, session already open
   -> FIRST SENTENCE TTS        network  gpt-4o-mini-tts, synthesized to a file
   -> playback starts                    <- this is when he "answers"
 ```

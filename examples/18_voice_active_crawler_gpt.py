@@ -167,7 +167,7 @@ ACTIONS: ACTION1, ACTION2, ...
 AGENT = True
 AGENT_USER = "petronilo"
 AGENT_WORKSPACE = f"/home/{AGENT_USER}/workspace"
-AGENT_MODEL = "claude-fable-5-1"
+AGENT_MODEL = "claude-opus-5-5"
 AGENT_EFFORT = "low"   # spoken answers: keep the pause short
 # When Opus is overloaded or failing the CLI switches to this model, so he stays in the agent with
 # his tools and memory instead of dropping to the OpenAI LLM above.
