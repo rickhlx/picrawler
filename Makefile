@@ -113,3 +113,6 @@ status: ## Battery, idle, spend today, pending reminders
 
 jobs: ## List pending reminders and tasks
 	$(CTL) jobs
+
+roam: ## Patrol the house and report: make roam [MIN=5] [TARGET="las llaves"]
+	$(CTL) roam --minutes $(or $(MIN),10) $(if $(TARGET),--target "$(TARGET)")

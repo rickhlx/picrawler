@@ -1,11 +1,11 @@
-"""Local control socket for Petronilo: say/ask/stop/remind/jobs/cancel/status
+"""Local control socket for Petronilo: say/ask/stop/remind/jobs/cancel/status/roam
 from another process on the same Pi, without going through the wake word.
 
 Protocol: connect, send one JSON object terminated by a newline, read one
 JSON reply terminated by a newline, then the connection closes. Replies are
 ``{"ok": true, "result": ...}`` or ``{"ok": false, "error": "..."}``. Each
 connection is handled on its own thread, since ``ask`` can run an agent turn
-that takes up to a minute.
+that takes up to a minute, and ``roam`` a patrol of up to half an hour.
 
 Used by petronilo_ctl.py (the CLI) and telegram_bridge.py (for /jobs and
 /status); anything else running as root on the Pi can talk to it too, since
@@ -136,6 +136,8 @@ class ControlServer:
                 return self._cancel(req)
             if cmd == "status":
                 return {"ok": True, "result": status_dict(self.va)}
+            if cmd == "roam":
+                return {"ok": True, "result": self.va.roam(req.get("target"), req.get("minutes", 10))}
             return {"ok": False, "error": f"unknown cmd {cmd!r}"}
         except KeyError as e:
             return {"ok": False, "error": f"missing field {e}"}
@@ -165,7 +167,7 @@ class ControlServer:
         return {"ok": False, "error": f"no job {req.get('id')!r}"}
 
 
-def request(cmd, path=DEFAULT_SOCKET, timeout=900, **fields):
+def request(cmd, path=DEFAULT_SOCKET, timeout=2400, **fields):
     """Send one command to a running ControlServer and return its reply dict.
     Raises OSError (e.g. FileNotFoundError, ConnectionRefusedError) if the
     socket isn't there or nobody is listening."""

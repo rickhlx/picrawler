@@ -5,6 +5,7 @@ from secret import OPENAI_API_KEY as API_KEY
 
 from voice_active_crawler import VoiceActiveCrawler
 from seeker import VisionLocator, Sonar
+from roamer import SceneDescriber
 from scheduler import Scheduler
 from control import ControlServer
 
@@ -100,6 +101,9 @@ FIDGET_EVERY = (3, 7)
 # sensor on D2/D3 stops him short of whatever is in front.
 LOCATOR = VisionLocator(API_KEY, model="gpt-4.1-mini")
 SONAR = Sonar()
+# Patrol ("/roam" on Telegram, `make roam`): the same small vision model describes each stop and
+# writes the report. Photos go in MEMORY_DIR/roams/, the last ten tours kept.
+DESCRIBER = SceneDescriber(API_KEY, model="gpt-4.1-mini")
 
 # Welcome message
 WELCOME = f"Qué onda, soy {NAME}, tu tío robot. Cuando me necesites nomás di: compa."
@@ -310,6 +314,7 @@ vad = VoiceActiveCrawler(
     fidget_every=FIDGET_EVERY,
     locator=LOCATOR,
     sonar=SONAR,
+    describer=DESCRIBER,
     keyboard_enable=KEYBOARD_ENABLE,
     wake_enable=WAKE_ENABLE,
     wake_word=WAKE_WORD,

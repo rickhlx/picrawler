@@ -10,6 +10,7 @@ import datetime
 import os
 import random
 import re
+import shutil
 import sys
 
 # Spanish weekday/month names for the "## Ahora" prompt section (datetime.weekday(): 0=Monday)
@@ -58,8 +59,8 @@ class VoiceActiveCrawler(VoiceAssistant):
                  fidget_every=None, locator=None, sonar=None, find_phrases=None, brain=None,
                  brain_error_phrase="Se me fue la señal, mijo. Pregúntame otra vez en un ratito.",
                  budget_phrase="Ya gasté mi domingo de hoy, mijo. Mañana seguimos platicando.",
-                 scheduler=None, notify=None, task_wait_seconds=600,
-                 **kwargs):
+                 scheduler=None, notify=None, task_wait_seconds=600, describer=None,
+                 roam_dir=None, roam_keep=10, **kwargs):
         self.action_queue = queue.Queue()
         # Autonomous turns (reminders, tasks from a control socket or Telegram) outside
         # any wake-word conversation. scheduler: Scheduler with pop_due()/describe() (see
@@ -130,6 +131,14 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.locator = locator
         self.sonar = sonar
         self.find_phrases = {**self.FIND_PHRASES, **(find_phrases or {})}
+        # roam: patrol the house and report (roamer.py). describer is its
+        # SceneDescriber; each tour's photos go in roam_dir/<time>/, and only
+        # the last roam_keep tours are kept.
+        self.describer = describer
+        self.roam_dir = roam_dir or os.path.join(memory_dir or os.path.dirname(os.path.abspath(__file__)), "roams")
+        self.roam_keep = roam_keep
+        self._roaming = threading.Lock()
+        self._roam_cancel = threading.Event()
         self.where_phrases = dict(self.WHERE_PHRASES)
         self._announcements = []  # said once the round's actions finish
         # Conversation mode: after answering, keep listening this many seconds
@@ -207,8 +216,10 @@ class VoiceActiveCrawler(VoiceAssistant):
         self.crawler.do_action("sit", speed=50)
 
     def on_wake(self):
-        # wait out a running autonomous turn first (a few seconds at most), and go
-        # busy under the same lock so no task can start in between
+        # somebody is home and calling him: a patrol gives way (it ends at its
+        # next stop), then wait out a running autonomous turn (a few seconds at
+        # most), and go busy under the same lock so no task can start in between
+        self._roam_cancel.set()
         with self._task_lock:
             self._idle.clear()
             self._conversation += 1
@@ -664,7 +675,8 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     def stop_speaking(self):
         """Cancel whatever is being said and drain queued actions. Safe to
-        call from any thread at any time."""
+        call from any thread at any time. Ends a patrol too."""
+        self._roam_cancel.set()
         if self._pipeline is not None:
             self._pipeline.cancel()
         while True:
@@ -926,6 +938,77 @@ class VoiceActiveCrawler(VoiceAssistant):
         if bearing < 225:
             return "detrás de ti"
         return "a tu derecha"
+
+    # ── roam: patrol the house and report what he saw (roamer.py) ────
+
+    ROAM_MAX_MINUTES = 30
+
+    def roam(self, target=None, minutes=10):
+        """Walk around on his own, a photo at every stop, and come back with a
+        report: {"text", "photos", "reason", "found"}. Silent the whole way
+        (nobody may be home, and talking while walking browns the Pi out).
+        Waits for a conversation to end first; a wake word or stop_speaking()
+        ends it at the next stop."""
+        if not (self.with_image and self.describer):
+            return {"text": "No puedo dar la vuelta, mijo: traigo los ojos apagados.",
+                    "photos": [], "reason": "blind", "found": False}
+        if not self._roaming.acquire(blocking=False):
+            return {"text": "Ya ando dando la vuelta, mijo, aguántame.",
+                    "photos": [], "reason": "busy", "found": False}
+        try:
+            if not self._acquire_idle(f"roam {target or ''}"):
+                return {"text": "Ando platicando con alguien, mijo; al rato doy la vuelta.",
+                        "photos": [], "reason": "busy", "found": False}
+            try:
+                self._roam_cancel.clear()
+                minutes = max(0.5, min(float(minutes), self.ROAM_MAX_MINUTES))
+                tour = self.run_on_action_thread(self._patrol, target, minutes)
+            finally:
+                self._task_lock.release()
+        finally:
+            self._roaming.release()
+        try:
+            text = self.describer.report(tour, target)
+        except Exception as e:
+            print(f"(reporte de la vuelta falló: {e})")
+            text = "\n".join(s.note for s in tour.stops if s.note) or "Di la vuelta pero no vi nada."
+        print(f"(vuelta: {tour.reason}, {len(tour.stops)} paradas) {text}")
+        return {"text": text, "photos": tour.photos, "reason": tour.reason, "found": tour.found}
+
+    def _patrol(self, target, minutes):
+        from roamer import Roamer
+        photos = os.path.join(self.roam_dir, datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S"))
+        self._prune_roams()
+        frame = "./img_roam.jpeg"
+
+        def look():
+            self.capture_image(frame)
+            return frame
+
+        def halt():
+            if self._roam_cancel.is_set():
+                return "stopped"
+            v = self.battery_voltage()
+            if v is not None and v < self.battery_low_volts:
+                return "battery"
+            return None
+
+        roamer = Roamer(self.crawler, look, self.describer, self.sonar or (lambda: None),
+                        halt=halt, photo_dir=photos)
+        try:
+            self.crawler.do_action("stand", speed=50)
+            return roamer.roam(target, minutes)
+        finally:
+            self.crawler.do_action("sit", speed=50)
+
+    def _prune_roams(self):
+        try:
+            tours = sorted(d for d in os.listdir(self.roam_dir)
+                           if os.path.isdir(os.path.join(self.roam_dir, d)))
+        except FileNotFoundError:
+            return
+        for old in tours[:max(0, len(tours) - self.roam_keep + 1)]:
+            shutil.rmtree(os.path.join(self.roam_dir, old), ignore_errors=True)
 
     def _say_announcements(self):
         lines, self._announcements = self._announcements, []

@@ -11,19 +11,39 @@ polling for the next message; polling itself is single-threaded, offset
 tracking is not shared with anything else.
 """
 import json
+import os
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 from control import job_list, status_dict
 
 API_ROOT = "https://api.telegram.org/bot{token}/{method}"
 POLL_TIMEOUT = 30
 MAX_MESSAGE_LEN = 4000
+MAX_ROAM_PHOTOS = 4
+DEFAULT_ROAM_MINUTES = 10
 STRANGER_REPLY = "No te conozco, mijo. Tu chat id es {chat_id}."
 START_REPLY = "Orale, ya te tengo agendado, mijo. Escribeme cuando quieras."
+ROAM_REPLY = "Va, ahí voy a dar la vuelta. Te escribo cuando regrese."
+BLIND_REPLY = "Traigo los ojos apagados, mijo."
+
+
+def parse_roam(text):
+    """``/roam [minutes] [target]`` -> (minutes, target or None).
+    "/roam", "/roam 5", "/roam las llaves", "/roam 5 las llaves"."""
+    words = text.split()[1:]
+    minutes = DEFAULT_ROAM_MINUTES
+    if words:
+        try:
+            minutes = float(words[0])
+            words = words[1:]
+        except ValueError:
+            pass
+    return minutes, " ".join(words) or None
 
 
 class TelegramBridge:
@@ -63,6 +83,35 @@ class TelegramBridge:
                     self._call("sendMessage", {"chat_id": target, "text": chunk})
             except Exception as e:
                 print(f"(telegram: {self._redact(e)})")
+
+    def send_photo(self, path, chat_id, caption=None):
+        """Send one JPEG to a chat as a multipart upload; never raises."""
+        try:
+            with open(path, "rb") as f:
+                photo = f.read()
+            fields = {"chat_id": str(chat_id)}
+            if caption:
+                fields["caption"] = caption[:1024]
+            body, content_type = self._multipart(fields, "photo", os.path.basename(path), photo)
+            request = urllib.request.Request(
+                API_ROOT.format(token=self.token, method="sendPhoto"),
+                data=body, headers={"Content-Type": content_type})
+            with urllib.request.urlopen(request, timeout=POLL_TIMEOUT + 10) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"(telegram: {self._redact(e)})")
+
+    @staticmethod
+    def _multipart(fields, file_field, filename, data):
+        boundary = uuid.uuid4().hex
+        parts = []
+        for name, value in fields.items():
+            parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'
+                         f"{value}\r\n".encode("utf-8"))
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{file_field}"; '
+                     f'filename="{filename}"\r\nContent-Type: image/jpeg\r\n\r\n'.encode("utf-8"))
+        parts.append(data + f"\r\n--{boundary}--\r\n".encode("utf-8"))
+        return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
     @staticmethod
     def _split(text):
@@ -139,7 +188,24 @@ class TelegramBridge:
             status = status_dict(self.va)
             self.send("\n".join(f"{key}: {value}" for key, value in status.items()), chat_id)
             return
+        if text == "/look":
+            path = self.va.snapshot()
+            if path:
+                self.send_photo(path, chat_id)
+            else:
+                self.send(BLIND_REPLY, chat_id)
+            return
+        if text == "/roam" or text.startswith("/roam "):
+            self._roam(chat_id, *parse_roam(text))
+            return
         prompt = (f"Mensaje por Telegram de {first_name}: {text}\n"
                   "Contestale por escrito, corto, sin moverte.")
         reply = self.va.run_task(prompt, speak=self.speak_replies)
         self.send(reply, chat_id)
+
+    def _roam(self, chat_id, minutes, target):
+        self.send(ROAM_REPLY, chat_id)
+        report = self.va.roam(target, minutes)
+        self.send(report["text"], chat_id)
+        for path in report["photos"][:MAX_ROAM_PHOTOS]:
+            self.send_photo(path, chat_id)
