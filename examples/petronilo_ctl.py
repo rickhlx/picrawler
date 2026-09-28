@@ -11,6 +11,7 @@ Examples:
     petronilo_ctl.py jobs
     petronilo_ctl.py cancel 3
     petronilo_ctl.py status
+    petronilo_ctl.py roam --minutes 5 --target "las llaves"
 
 Runs on the Pi as whoever can reach /run/petronilo.sock (root, since the
 socket is chmod 0o600 and owned by the voice service).
@@ -87,6 +88,10 @@ def build_parser():
 
     sub.add_parser("status", help="battery, idle state, spend today, scheduled jobs")
 
+    p_roam = sub.add_parser("roam", help="patrol the house and report what he saw")
+    p_roam.add_argument("--minutes", type=float, default=10)
+    p_roam.add_argument("--target", default=None, help="stop when this is in sight")
+
     return parser
 
 
@@ -107,6 +112,8 @@ def dispatch(args):
         return request("cancel", args.socket, id=args.id)
     if args.command == "status":
         return request("status", args.socket)
+    if args.command == "roam":
+        return request("roam", args.socket, minutes=args.minutes, target=args.target)
     raise ValueError(f"unknown command {args.command!r}")
 
 
@@ -119,6 +126,10 @@ def print_result(command, result):
     elif command == "status":
         for key, value in result.items():
             print(f"{key}: {value}")
+    elif command == "roam":
+        print(f"({result['reason']}) {result['text']}")
+        for path in result["photos"]:
+            print(path)
     else:
         print(result)
 

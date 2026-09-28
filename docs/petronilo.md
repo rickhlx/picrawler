@@ -103,6 +103,7 @@ make say MSG="ya llegó la pizza"    # make him say a line verbatim
 make stop                            # cut whatever he is saying and doing
 make status                          # battery, idle, spend today, pending jobs
 make jobs                            # list reminders and tasks
+make roam MIN=5                      # patrol the house and report (see below)
 ```
 
 This is the headless way to test him when you are not in the room, and the way
@@ -136,6 +137,38 @@ commands.
 Anything he says on his own — a reminder firing, a scheduled task finishing —
 is mirrored to the allowed chats, which is how you find out the robot said
 something to an empty room.
+
+## Checking on the house while you're out
+
+Two Telegram commands let you use him as eyes at home:
+
+- `/look` sends back one photo from where he is standing.
+- `/roam` sends him on a patrol. He stands up and walks a few steps at a time,
+  taking a photo at every stop, then sits and sends a short report plus up to
+  four photos: the ones the vision model flagged as worth seeing (a person, a
+  pet, an open door, something on the floor), or the last one if nothing was.
+  `/roam 5` caps it at five minutes (default 10, at most 30). `/roam las
+  llaves` stops as soon as he sees the keys, and `/roam 5 al gato` does both.
+
+`/stop` ends a patrol at the next stop, and so does anyone at home saying the
+wake word. He also stops on a low battery. Over SSH the same thing is `make
+roam MIN=5 TARGET="las llaves"`, which prints the report and the photo paths on
+the Pi. The last ten tours' photos are kept in
+`examples/petronilo_memory/roams/`.
+
+He is silent while roaming. Nobody may be home, and talking while walking is
+what browns the Pi out. Each stop costs one small vision call, so a
+ten-minute patrol costs cents, not an agent conversation.
+
+Limits worth knowing before you rely on it:
+
+- The ultrasonic sensor only sees straight ahead at body height, so the
+  camera watches for stairs and table edges. That is a model's judgement, not
+  a cliff sensor. Keep him on a floor with no drop he could walk off.
+- There is no map and no compass. He wanders, turning away from walls, and
+  the headings in the log are nominal, so he can't tell you which room he was
+  in beyond what the photos show.
+- He doesn't find his way back to the charger.
 
 ## Battery
 

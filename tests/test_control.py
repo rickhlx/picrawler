@@ -71,6 +71,14 @@ class FakeVA:
     def battery_voltage(self):
         return 7.9
 
+    def roam(self, target=None, minutes=10):
+        self.roamed = (target, minutes)
+        photos = [f"/tmp/tour/{n:02d}.jpg" for n in range(6)]
+        return {"text": "vi al gato", "photos": photos, "reason": "time", "found": False}
+
+    def snapshot(self):
+        return getattr(self, "frame", None)
+
 
 class ControlServerTests(unittest.TestCase):
     def setUp(self):
@@ -131,6 +139,16 @@ class ControlServerTests(unittest.TestCase):
     def test_cancel_missing(self):
         reply = control.request("cancel", self.sock_path, id=999)
         self.assertFalse(reply["ok"])
+
+    def test_roam_passes_target_and_minutes(self):
+        reply = control.request("roam", self.sock_path, target="las llaves", minutes=3)
+        self.assertTrue(reply["ok"], reply)
+        self.assertEqual(reply["result"]["text"], "vi al gato")
+        self.assertEqual(self.va.roamed, ("las llaves", 3))
+
+    def test_roam_defaults(self):
+        control.request("roam", self.sock_path)
+        self.assertEqual(self.va.roamed, (None, 10))
 
     def test_status(self):
         reply = control.request("status", self.sock_path)
@@ -213,6 +231,65 @@ class TelegramBridgeTests(unittest.TestCase):
         finally:
             urllib.request.urlopen = original
         self.assertEqual(called, [])
+
+
+class RecordingBridge(telegram_bridge.TelegramBridge):
+    """Keeps what would have gone to Telegram instead of sending it."""
+
+    def __init__(self, va):
+        super().__init__("TOKEN", [1], va)
+        self.texts, self.photos = [], []
+
+    def send(self, text, chat_id=None):
+        self.texts.append(text)
+
+    def send_photo(self, path, chat_id, caption=None):
+        self.photos.append(path)
+
+
+class TelegramRoamTests(unittest.TestCase):
+    def test_parse_roam(self):
+        parse = telegram_bridge.parse_roam
+        self.assertEqual(parse("/roam"), (10, None))
+        self.assertEqual(parse("/roam 5"), (5, None))
+        self.assertEqual(parse("/roam las llaves"), (10, "las llaves"))
+        self.assertEqual(parse("/roam 2.5 al gato negro"), (2.5, "al gato negro"))
+
+    def test_roam_acks_then_reports_with_capped_photos(self):
+        va = FakeVA()
+        bridge = RecordingBridge(va)
+        bridge._handle_allowed(1, "Ricardo", "/roam 5 el gato")
+        self.assertEqual(va.roamed, ("el gato", 5))
+        self.assertEqual(bridge.texts, [telegram_bridge.ROAM_REPLY, "vi al gato"])
+        self.assertEqual(len(bridge.photos), telegram_bridge.MAX_ROAM_PHOTOS)
+        self.assertEqual(va.asked, [])
+
+    def test_roaming_is_not_an_agent_turn(self):
+        bridge = RecordingBridge(FakeVA())
+        bridge._handle_allowed(1, "Ricardo", "/roaming")
+        self.assertEqual(len(bridge.va.asked), 1)
+
+    def test_look_sends_the_frame(self):
+        va = FakeVA()
+        va.frame = "/tmp/img_input.jpeg"
+        bridge = RecordingBridge(va)
+        bridge._handle_allowed(1, "Ricardo", "/look")
+        self.assertEqual(bridge.photos, ["/tmp/img_input.jpeg"])
+
+    def test_look_with_the_camera_off(self):
+        bridge = RecordingBridge(FakeVA())
+        bridge._handle_allowed(1, "Ricardo", "/look")
+        self.assertEqual(bridge.texts, [telegram_bridge.BLIND_REPLY])
+
+    def test_multipart_carries_fields_and_file(self):
+        body, content_type = telegram_bridge.TelegramBridge._multipart(
+            {"chat_id": "1"}, "photo", "00.jpg", b"\xff\xd8jpeg")
+        boundary = content_type.split("boundary=")[1]
+        self.assertTrue(body.startswith(f"--{boundary}\r\n".encode()))
+        self.assertIn(b'name="chat_id"\r\n\r\n1\r\n', body)
+        self.assertIn(b'filename="00.jpg"', body)
+        self.assertIn(b"\xff\xd8jpeg", body)
+        self.assertTrue(body.endswith(f"--{boundary}--\r\n".encode()))
 
 
 if __name__ == "__main__":
