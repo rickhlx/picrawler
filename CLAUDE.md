@@ -22,7 +22,7 @@ sudo pip3 uninstall picrawler --break -y && sudo pip3 install -e . --break --no-
 
 Then push the Mac working tree to it with `make sync` (`make sync-dry` to preview, `make deploy` to sync and restart the `petronilo` service, `make logs` to follow it; host is the `picrawler` SSH alias, override with `PI_HOST=`). It excludes Pi-local state (`secret.py`, `petronilo_memory/`, generated media, lgpio pipes) so `--delete` never removes it. rsync is the only way code reaches the Pi: never `git pull` there, its checkout is just the target of the sync. Each sync writes `~/picrawler/DEPLOYED` on the Pi (`git describe --dirty`, branch, UTC time); `make deployed` prints it. `make wifi SSID="..."` pre-seeds a NetworkManager profile (password read from a prompt, keyfile installed root-owned 600, `powersave=2`) so he joins a new network headless; `make wifi-list`/`wifi-status` inspect it. See `docs/wifi.md`. Deploy from `main` with a clean tree unless you're iterating on hardware.
 
-Tests live in `tests/` (stdlib `unittest`, no dependencies: `python3 -m unittest discover -s tests -p 'test_*.py'`), covering the agent's tool gate, memory, scheduler, control socket, the camera sweep (`Seeker`), wake-word matching and the agent brain (against a stub `claude_agent_sdk`, which is not installed on the Mac), the parts that run without robot_hat; run them after touching those modules. No linter or type-checker. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`; Petronilo's agent brain needs `claude-agent-sdk` (its wheel bundles the Claude Code CLI; `examples/petronilo/setup_agent.sh` installs it).
+Tests live in `tests/` (stdlib `unittest`, no dependencies: `python3 -m unittest discover -s tests -p 'test_*.py'`), covering the agent's tool gate, memory, scheduler, control socket, the camera sweep (`Seeker`), the patrol (`Roamer`), wake-word matching and the agent brain (against a stub `claude_agent_sdk`, which is not installed on the Mac), the parts that run without robot_hat; run them after touching those modules. No linter or type-checker. Dependencies: `robot_hat` (installed separately from the fork <https://github.com/rickhlx/robot-hat>, `2.5.x` branch; its `install.py` also pulls in `sunfounder-voice-assistant`), `readchar`. `twerk.py` and `petronilo_voice.py` also need `numpy` and `requests`; Petronilo's agent brain needs `claude-agent-sdk` (its wheel bundles the Claude Code CLI; `examples/petronilo/setup_agent.sh` installs it).
 
 This repo is a fork of `sunfounder/picrawler` (remote `origin` = `rickhlx/picrawler`). The robot-hat fork mocks GPIO/I2C/audio on non-Pi hosts, so `import robot_hat` / `import picrawler` work on macOS for development (`ROBOT_HAT_MOCK=1` forces the mock on a Pi).
 
@@ -43,13 +43,14 @@ picrawler/
   stt.py               # Re-exports STT from robot_hat.stt
   tts.py               # Re-exports TTS from robot_hat.tts
   version.py           # Version string (2.1.4)
-examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot; 24 tricks; 25 find)
+examples/              # Numbered demo scripts (0-20 match the online course; 21-23 IMU/trot; 24 tricks; 25 find; 26 roam)
   voice_active_crawler.py     # VoiceActiveCrawler class (base, not numbered)
   wake.py                     # Wake-word matching over a transcript (fuzzy, mid-sentence, question detection)
   petronilo_voice.py          # PetroniloTTS (OpenAI TTS + Piper fallback), HybridSTT, SpeechPipeline
   spanish_tts.py              # Mexican Spanish Piper model name + EspeakES
   twerk.py                    # Reggaeton beat synthesis + twerk routine (also used by the "twerk" action)
   seeker.py                   # Seeker: scan with the camera, walk up, stop on the ultrasonic; VisionLocator, Sonar
+  roamer.py                   # Roamer: patrol the house, photo per stop, sonar + vision for walls/stairs; SceneDescriber writes the report
   stream.py                   # camera only, served on :9000 (vilib web view); --face/--color/--qr
   petronilo.service           # systemd unit running 18_voice_active_crawler_gpt.py on boot
   memory.py                   # Memory: facts + chat summaries learned after each conversation; add/search/forget
@@ -194,6 +195,9 @@ sudo python3 examples/24_tricks.py "play dead" bow        # Named tricks; no arg
 
 # Find an object (25); stop petronilo.service first, it holds the camera
 sudo python3 examples/25_find.py "red cup"
+
+# Roam the house and report (26); same, stop the service first
+sudo python3 examples/26_roam.py --minutes 3 --target "las llaves"
 
 # Not numbered
 sudo python3 examples/twerk.py --bpm 95 --volume 40 --speed 70   # Reggaeton twerk
