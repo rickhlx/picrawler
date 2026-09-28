@@ -33,7 +33,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         "stand":        ("do_action", {"motion_name": "stand", "step": 1, "speed": 50}),
         "wave":         ("do_action", {"motion_name": "wave", "step": 1, "speed": 60}),
         "push up":      ("do_action", {"motion_name": "push_up", "step": 1, "speed": 50}),
-        "twerk":        ("self:party", {"seconds": 12}),   # reggaeton routine from twerk.py
+        "twerk":        ("self:party", {}),   # one pass of the twerk.py routine, ~30 s
         "trot":         ("self:trot", {"half_cycles": 10}),  # fast diagonal-pair gait, forward
         "look left":    ("do_action", {"motion_name": "look_left", "step": 1, "speed": 60}),
         "look right":   ("do_action", {"motion_name": "look_right", "step": 1, "speed": 60}),
@@ -789,7 +789,7 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── party (twerk.py) ──────────────────────────────────────────────
 
-    def party(self, seconds=12):
+    def party(self, seconds=None):
         v = self.battery_voltage()
         if v is not None and v < self.battery_low_volts:
             print(f"(sin pila para perrear: {v:.2f} V)")
