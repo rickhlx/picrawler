@@ -764,15 +764,27 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── battery ───────────────────────────────────────────────────────
 
+    BATTERY_MIN_VOLTS = 5.0
+
     def battery_voltage(self):
         try:
             from robot_hat.device import get_battery_voltage
         except Exception:
             from robot_hat import get_battery_voltage
-        try:
-            return float(get_battery_voltage())
-        except Exception:
+        # The ADC now and then reads 0 V, which would refuse every heavy move
+        # as "low battery". Nothing under BATTERY_MIN_VOLTS can be running
+        # the Pi, so drop those and take the median of a few reads.
+        readings = []
+        for _ in range(3):
+            try:
+                v = float(get_battery_voltage())
+            except Exception:
+                continue
+            if v >= self.BATTERY_MIN_VOLTS:
+                readings.append(v)
+        if not readings:
             return None
+        return sorted(readings)[len(readings) // 2]
 
     def _report_battery(self, startup=False):
         v = self.battery_voltage()
