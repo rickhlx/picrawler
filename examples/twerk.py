@@ -200,6 +200,11 @@ ROUTINE = (
 )
 
 
+def routine_seconds(bpm=95):
+    """How long one pass through ROUTINE takes: 12 bars, about 30 s at 95 BPM."""
+    return len(ROUTINE) * 60.0 / bpm * 4.0
+
+
 def twerk(crawler, bpm, speed, duration=None):
     """Run the routine forever, or for `duration` seconds."""
     bar_len = 60.0 / bpm * 4.0
@@ -218,9 +223,12 @@ def twerk(crawler, bpm, speed, duration=None):
         bar_idx += 1
 
 
-def party(crawler, seconds=12, bpm=95, speed=70, volume=90, music=None):
-    """Short twerk session for use as a voice-assistant action.
-    Plays the dembow beat (if audio works) and dances for `seconds`, then sits."""
+def party(crawler, seconds=None, bpm=95, speed=70, volume=90, music=None):
+    """Twerk session for use as a voice-assistant action.
+    Plays the dembow beat (if audio works) and dances for `seconds`, then sits.
+    The default is one whole routine, so the shake, grind and drop all happen."""
+    if seconds is None:
+        seconds = routine_seconds(bpm)
     if not os.path.exists(MUSIC_FILE):
         make_beat(MUSIC_FILE, bpm=bpm)
     own_music = music is None

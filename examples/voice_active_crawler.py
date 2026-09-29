@@ -33,7 +33,7 @@ class VoiceActiveCrawler(VoiceAssistant):
         "stand":        ("do_action", {"motion_name": "stand", "step": 1, "speed": 50}),
         "wave":         ("do_action", {"motion_name": "wave", "step": 1, "speed": 60}),
         "push up":      ("do_action", {"motion_name": "push_up", "step": 1, "speed": 50}),
-        "twerk":        ("self:party", {"seconds": 12}),   # reggaeton routine from twerk.py
+        "twerk":        ("self:party", {}),   # one pass of the twerk.py routine, ~30 s
         "trot":         ("self:trot", {"half_cycles": 10}),  # fast diagonal-pair gait, forward
         "look left":    ("do_action", {"motion_name": "look_left", "step": 1, "speed": 60}),
         "look right":   ("do_action", {"motion_name": "look_right", "step": 1, "speed": 60}),
@@ -764,15 +764,27 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── battery ───────────────────────────────────────────────────────
 
+    BATTERY_MIN_VOLTS = 5.0
+
     def battery_voltage(self):
         try:
             from robot_hat.device import get_battery_voltage
         except Exception:
             from robot_hat import get_battery_voltage
-        try:
-            return float(get_battery_voltage())
-        except Exception:
+        # The ADC now and then reads 0 V, which would refuse every heavy move
+        # as "low battery". Nothing under BATTERY_MIN_VOLTS can be running
+        # the Pi, so drop those and take the median of a few reads.
+        readings = []
+        for _ in range(3):
+            try:
+                v = float(get_battery_voltage())
+            except Exception:
+                continue
+            if v >= self.BATTERY_MIN_VOLTS:
+                readings.append(v)
+        if not readings:
             return None
+        return sorted(readings)[len(readings) // 2]
 
     def _report_battery(self, startup=False):
         v = self.battery_voltage()
@@ -789,7 +801,7 @@ class VoiceActiveCrawler(VoiceAssistant):
 
     # ── party (twerk.py) ──────────────────────────────────────────────
 
-    def party(self, seconds=12):
+    def party(self, seconds=None):
         v = self.battery_voltage()
         if v is not None and v < self.battery_low_volts:
             print(f"(sin pila para perrear: {v:.2f} V)")
