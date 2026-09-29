@@ -42,7 +42,46 @@ is surprisingly tolerant of a flipped frame, but face detection is not.
 `6_record_video.py` records to `~/Videos/`: `Q` starts, pauses and resumes,
 `E` stops.
 
-## Watching from a browser
+## Watching while he runs, from anywhere
+
+The voice service serves its own camera on `127.0.0.1:9000`
+(`examples/camera_stream.py`), so you can watch while he talks, finds things
+or roams, without stopping him:
+
+| Path | What it is |
+|------|------------|
+| `/` | A page with the live view |
+| `/mjpg` | The raw MJPEG stream |
+| `/snapshot.jpg` | One frame |
+
+It grabs frames (5 a second) only while someone is watching. It listens on
+localhost only and has no login of its own, so there are two ways in.
+
+**On the home network**, tunnel it over SSH:
+
+```bash
+make camera          # then open http://localhost:9000/
+```
+
+**From outside the house**, use Tailscale. It puts the Pi on your private
+tailnet, and `tailscale serve` publishes the view over HTTPS to your tailnet
+devices only: nothing is port-forwarded, and there's no password to leak. Once:
+
+```bash
+ssh picrawler 'curl -fsSL https://tailscale.com/install.sh | sh'
+ssh -t picrawler sudo tailscale up     # open the login link it prints
+make camera-remote                     # publishes :9000 on the tailnet
+```
+
+Then open `https://<pi's tailnet name>/` from your phone or laptop with
+Tailscale on (`make camera-remote` prints it). It survives reboots. `make
+camera-remote-off` takes it down. Tailscale also makes `make ask`, `make roam`
+and plain `ssh picrawler` work from away, once `PI_HOST` points at the tailnet
+name.
+
+`CAMERA_STREAM` in `18_voice_active_crawler_gpt.py` moves or disables it.
+
+## Watching from a browser with vilib
 
 `vilib` serves the live camera over HTTP on port 9000. This is the easiest way
 to aim the camera, and the only practical way to see what the robot sees while
@@ -91,8 +130,10 @@ curl -s http://picrawler.local:9000/mjpg > /dev/null    # just checking it is al
 
 ### Things to know
 
-- **Petronilo holds the camera.** The stream and the assistant cannot both
-  have it. Stop the service first, and remember to start it again.
+- **Petronilo holds the camera.** vilib and the assistant can't both have
+  it: stop the service first and start it again after. For a plain look while
+  he runs, use his own view above instead. vilib's is for the detection
+  overlays.
 - **`picrawler.local` needs mDNS**, which means the same subnet. Use the IP
   address otherwise; see [Wi-Fi](wifi.md) for finding it.
 - **There is no authentication and no encryption.** Anyone on the network can

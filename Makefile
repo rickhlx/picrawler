@@ -113,3 +113,14 @@ status: ## Battery, idle, spend today, pending reminders
 
 jobs: ## List pending reminders and tasks
 	$(CTL) jobs
+
+# Live camera, served by the service on the Pi's localhost:9000 (examples/camera_stream.py)
+camera: ## Watch his camera at http://localhost:9000/ (SSH tunnel; Ctrl+C to stop)
+	@echo "http://localhost:9000/"
+	ssh -N -L 9000:127.0.0.1:9000 $(PI_HOST)
+
+camera-remote: ## Publish the camera on your tailnet over HTTPS (needs tailscale up on the Pi)
+	ssh -t $(PI_HOST) "sudo tailscale serve --bg 9000 && tailscale serve status"
+
+camera-remote-off: ## Take the camera off the tailnet
+	ssh -t $(PI_HOST) sudo tailscale serve --https=443 off

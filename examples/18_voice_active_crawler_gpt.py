@@ -7,6 +7,7 @@ from voice_active_crawler import VoiceActiveCrawler
 from seeker import VisionLocator, Sonar
 from scheduler import Scheduler
 from control import ControlServer
+from camera_stream import CameraServer
 
 # ── TTS engines ──────────────────────────────────────────────────────────
 # Pick one. The VoiceAssistant accepts any TTS instance via the `tts=` parameter.
@@ -261,6 +262,9 @@ en palabras.
 SCHEDULER = Scheduler(os.path.join(MEMORY_DIR, "jobs.json"))
 # Local control socket: `sudo python3 petronilo_ctl.py say|ask|stop|remind|jobs|status` (make ask MSG=...)
 CONTROL_SOCKET = "/run/petronilo.sock"
+# Live camera while he runs: http://127.0.0.1:9000/ on the Pi. Localhost only, no auth: reach it from
+# outside with `tailscale serve` (docs/camera.md). None turns it off. Grabs only while someone watches.
+CAMERA_STREAM = ("127.0.0.1", 9000)
 # Telegram, optional: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_IDS (list of ints) in secret.py. He answers
 # in writing, and everything he says on his own (reminders, tasks) is mirrored to those chats.
 try:
@@ -330,6 +334,8 @@ if TELEGRAM_BOT_TOKEN:
 
 if __name__ == '__main__':
     ControlServer(vad, CONTROL_SOCKET).start()
+    if CAMERA_STREAM and WITH_IMAGE:
+        CameraServer(vad.jpeg, *CAMERA_STREAM).start()
     if telegram:
         telegram.start()
     vad.run()

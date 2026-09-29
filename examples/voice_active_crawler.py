@@ -7,6 +7,7 @@ import queue
 import threading
 import concurrent.futures
 import datetime
+import io
 import os
 import random
 import re
@@ -61,6 +62,9 @@ class VoiceActiveCrawler(VoiceAssistant):
                  scheduler=None, notify=None, task_wait_seconds=600,
                  **kwargs):
         self.action_queue = queue.Queue()
+        # the live view (camera_stream.py) grabs frames from its own threads
+        # while the voice loop and find capture too: one capture at a time
+        self._camera_lock = threading.Lock()
         # Autonomous turns (reminders, tasks from a control socket or Telegram) outside
         # any wake-word conversation. scheduler: Scheduler with pop_due()/describe() (see
         # scheduler.py); notify: callable(text) to mirror what he says on his own to a
@@ -1012,6 +1016,20 @@ class VoiceActiveCrawler(VoiceAssistant):
         path = "./img_input.jpeg"
         self.capture_image(path)
         return path
+
+    def capture_image(self, path):
+        with self._camera_lock:
+            super().capture_image(path)
+
+    def jpeg(self):
+        """One frame as JPEG bytes for the live view, or None with the camera off."""
+        picam2 = getattr(self, "picam2", None)
+        if not (self.with_image and picam2):
+            return None
+        buf = io.BytesIO()
+        with self._camera_lock:
+            picam2.capture_file(buf, format="jpeg")
+        return buf.getvalue()
 
     def sensor_readings(self):
         distance = self.sonar() if self.sonar else None
